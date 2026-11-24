@@ -52,19 +52,38 @@ if ($Origen) {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     if ((Resolve-Path $Origen).Path -ne (Resolve-Path $InstallDir).Path) {
         robocopy $Origen $InstallDir /E /NFL /NDL /NJH /NJS /NP `
-            /XD .venv .git .claude .pytest_cache __pycache__ tests scratch_agente respaldo_antes_de_limpiar fichas `
-            /XF *.dwg *.bak *.log *.xlsx zonas_activas.json | Out-Null
+            /XD .venv .git .claude .pytest_cache __pycache__ tests scratch_agente respaldo_antes_de_limpiar fichas perfiles cache `
+            /XF *.dwg *.bak *.log *.xlsx zonas_activas.json .mcp.json | Out-Null
         if ($LASTEXITCODE -ge 8) { Fallo "No se pudieron copiar los archivos (robocopy $LASTEXITCODE)." }
     }
-} elseif (Test-Path (Join-Path $InstallDir ".git")) {
+} elseif ((Test-Path (Join-Path $InstallDir ".git")) -and (Get-Command git -ErrorAction SilentlyContinue)) {
     Paso "Actualizando instalacion existente..."
     git -C "$InstallDir" pull
     if ($LASTEXITCODE -ne 0) { Fallo "git pull fallo. Revisa tu acceso al repositorio." }
 } else {
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fallo "Falta git. Instalalo (winget install Git.Git) o pide la carpeta del proyecto y ejecuta instalar.ps1 desde ella." }
-    Paso "Descargando el proyecto..."
-    git clone $Repo "$InstallDir"
-    if ($LASTEXITCODE -ne 0) { Fallo "No se pudo descargar el repositorio. Verifica tu acceso o ejecuta instalar.ps1 desde la carpeta del proyecto." }
+    $listo = $false
+    if ((Get-Command git -ErrorAction SilentlyContinue) -and -not (Test-Path (Join-Path $InstallDir "server.py"))) {
+        Paso "Descargando el proyecto con git..."
+        git clone $Repo "$InstallDir"
+        $listo = ($LASTEXITCODE -eq 0)
+    }
+    if (-not $listo) {       # sin git (lo normal en un PC de diseno) o si git fallo: se baja el zip
+        Paso "Descargando el proyecto (zip, no necesita git)..."
+        $zipUrl = if ($env:SCHALLER_ZIP) { $env:SCHALLER_ZIP } else { ($Repo -replace "\.git$", "") + "/archive/refs/heads/main.zip" }
+        $tmp = Join-Path $env:TEMP ("schaller_" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+        $zip = Join-Path $tmp "proyecto.zip"
+        try {
+            $ProgressPreference = "SilentlyContinue"
+            if ($zipUrl -match "^https?://") { Invoke-WebRequest -Uri $zipUrl -OutFile $zip -UseBasicParsing } else { Copy-Item $zipUrl $zip }
+            Expand-Archive -Path $zip -DestinationPath $tmp -Force
+        } catch { Fallo "No se pudo descargar el proyecto ($zipUrl). Revisa tu conexion o pide la carpeta del proyecto y ejecuta instalar_equipo.bat desde ella." }
+        $raiz = Get-ChildItem $tmp -Directory | Select-Object -First 1
+        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+        robocopy $raiz.FullName $InstallDir /E /NFL /NDL /NJH /NJS /NP /XD perfiles cache | Out-Null
+        if ($LASTEXITCODE -ge 8) { Fallo "No se pudieron copiar los archivos (robocopy $LASTEXITCODE)." }
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 if (-not (Test-Path (Join-Path $InstallDir "server.py")) -or -not (Test-Path (Join-Path $InstallDir "sondas"))) {
     Fallo "La instalacion esta incompleta (faltan server.py o la carpeta sondas)."

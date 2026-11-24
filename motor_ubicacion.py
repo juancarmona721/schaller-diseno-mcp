@@ -33,6 +33,14 @@ PRODUCTOS = {
 TAM_M = {"cctevo58": 0.254, "cctevo160": 0.423, "l7": 0.320, "simbiosis": 0.548, "moon60": 0.692,
          "durastrip_ip68": 1.808, "durastrip_ip20": 1.816, "ci160": 0.450, "ci200qr": 0.591, "ci200qs": 0.582}
 
+# Bloques que el MCP sabe CREAR si no estan ni en el plano ni en bloques_schaller.dwg (asi un companero no queda bloqueado por una
+# biblioteca incompleta). Circulos [dx, dy, radio] en METROS, centrados en el origen. SIMBIOSIS: 0.55 x 0.40 m (medido del plano aprobado).
+DEFINICIONES_INTERNAS = {
+    "SIMBIOSI": {"circulos": [[-0.2442, -0.0137, 0.03], [-0.0001, 0.0215, 0.16], [-0.2037, 0.1703, 0.03], [-0.2018, -0.171, 0.03],
+                              [-0.0002, 0.1244, 0.03], [0.0026, -0.0773, 0.03], [0.2442, -0.0128, 0.03], [0.203, 0.171, 0.03],
+                              [0.2024, -0.1703, 0.03]]},
+}
+
 CAPAS_COLOR = {"SCH_ILUMINACION": 4, "SCH_AUDIO": 6}
 ALTURA_ROTULO = 0.035
 TOL_DUPLICADO = 0.30          # m: mismo bloque a menos de esto de una posicion = ya esta puesto (evita luces "casi duplicadas")

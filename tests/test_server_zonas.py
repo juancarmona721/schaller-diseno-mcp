@@ -92,3 +92,27 @@ def test_consultar_y_buscar_usan_el_escaner_nuevo(autocad):
     assert server.consultar_zona("juntas")["zonas"][0]["nombre"] == "Sala de juntas"
     assert server.buscar_en_plano("sala_juntas")["total"] == 1
     assert server.consultar_zona("no existe")["error"] == "zona_no_encontrada"
+
+
+# ------------------------------------------------------------------------------------------------ quitar_colocaciones
+def test_quitar_pasa_ensayo_y_candado_a_la_sonda_y_solo_borra_con_ejecutar(monkeypatch):
+    llamadas = []
+    monkeypatch.setattr(server.acad, "diseno", lambda args, **kw: (llamadas.append(args) or {"ok": True, "a_borrar": 35}))
+    r = server.quitar_colocaciones()
+    assert r["ok"] and llamadas[-1]["op"] == "quitar" and llamadas[-1]["ejecutar"] is False        # ensayo por defecto
+    server.quitar_colocaciones(ejecutar=True, confirmacion="ABCD")
+    assert llamadas[-1]["ejecutar"] is True and llamadas[-1]["confirmacion"] == "ABCD" and llamadas[-1]["max_objetos"] >= 1
+
+
+def test_quitar_respeta_el_interruptor_de_escritura(monkeypatch):
+    monkeypatch.setattr(server, "CFG", {**server.CFG, "escritura": {"habilitada": False}})
+    assert server.quitar_colocaciones(ejecutar=True)["error"] == "escritura_desactivada"
+
+
+def test_la_sonda_solo_puede_borrar_las_capas_sch():
+    import re
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "sondas" / "sonda_diseno.py").read_text(encoding="utf-8")
+    assert 'CAPAS_SCH = ("SCH_ILUMINACION", "SCH_AUDIO")' in src
+    cuerpo = src[src.index("def op_quitar"):src.index("def main")]
+    assert cuerpo.count(".Delete()") == 3 and "Layer) not in CAPAS_SCH" in cuerpo    # 2x SelectionSet.Delete + 1 entidad, con barrera de capa

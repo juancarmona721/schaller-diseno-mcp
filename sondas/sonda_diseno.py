@@ -265,6 +265,17 @@ def _asegurar_bloques(acad, doc, nombres):
                 break
             except Exception as e:
                 errores[n] = f"{type(e).__name__}: {e}"
+    for n in [n for n in faltan if not existe(doc.Blocks, n)]:       # ultimo recurso: definicion interna del MCP
+        d = motor_ubicacion.DEFINICIONES_INTERNAS.get(n)
+        if not d:
+            continue
+        try:
+            nb = doc.Blocks.Add(pt(0, 0), n)
+            for dx, dy, r in d["circulos"]:
+                nb.AddCircle(pt(dx, dy), r)
+            origenes[n] = "definicion_interna"
+        except Exception as e:
+            errores[n] = f"{type(e).__name__}: {e}"
     return [n for n in faltan if not existe(doc.Blocks, n)], origenes, errores
 
 
@@ -298,7 +309,7 @@ def op_insertar(acad, doc, args):
     elif faltan:
         # ensayo: dice si se podrian importar de algun dibujo abierto
         otros = [d for d in acad.Documents if d.Name != doc.Name]
-        faltan = [n for n in faltan if not any(existe(d.Blocks, n) for d in otros)]
+        faltan = [n for n in faltan if not any(existe(d.Blocks, n) for d in otros) and n not in motor_ubicacion.DEFINICIONES_INTERNAS]
     if faltan:
         return {"ok": False, "error": "bloques_no_disponibles", "faltan": faltan, "errores_importacion": errores,
                 "detalle": "Esos bloques no estan en el plano ni en bloques_schaller.dwg (debe estar abierto) ni en otro dibujo abierto. "
@@ -353,6 +364,48 @@ def op_insertar(acad, doc, args):
             "desviacion_max_m": round(desv_max, 3), "objetos_en_modelo": total}
 
 
+def op_quitar(doc, args):
+    """BORRA solo lo que colocamos: entidades de las capas SCH_ILUMINACION y SCH_AUDIO (nunca otras capas, nunca las capas en si)."""
+    import collections
+    from sonda_escribir import candado
+    ejecutar = bool(args.get("ejecutar"))
+    total = int(doc.ModelSpace.Count)
+    if (bloqueo := candado(doc, args, total, ejecutar)):
+        return bloqueo
+    ss = _conjunto(doc, "SS_DISENO_QUITAR", 5, None, None, [8], [",".join(CAPAS_SCH)])
+    try:
+        ents = [ss.Item(i) for i in range(ss.Count)]
+        cuenta = collections.Counter()
+        for e in ents:
+            try:
+                nombre = str(e.EffectiveName) if str(e.ObjectName) == "AcDbBlockReference" else str(e.ObjectName)
+                cuenta[f"{nombre} ({e.Layer})"] += 1
+            except Exception:
+                pass
+        resumen = dict(sorted(cuenta.items()))
+        if not ejecutar:
+            return {"ok": True, "ejecutado": False, "a_borrar": len(ents), "detalle": resumen, "objetos_en_modelo": total}
+        borrados, fallos = 0, 0
+        for e in ents:
+            try:
+                if str(e.Layer) not in CAPAS_SCH:            # ultima barrera: jamas una capa del proyecto
+                    continue
+                e.Delete()
+                borrados += 1
+            except Exception:
+                fallos += 1
+    finally:
+        ss.Delete()
+    ss2 = _conjunto(doc, "SS_DISENO_QUITAR", 5, None, None, [8], [",".join(CAPAS_SCH)])
+    try:
+        quedan = int(ss2.Count)
+    finally:
+        ss2.Delete()
+    return {"ok": fallos == 0 and quedan == 0, "ejecutado": True, "borrados": borrados, "fallos": fallos, "quedan_en_capas_sch": quedan,
+            "detalle": resumen, "objetos_en_modelo_antes": total, "objetos_en_modelo_ahora": int(doc.ModelSpace.Count),
+            "aviso": "Ctrl+Z en AutoCAD deshace el borrado si fue un error."}
+
+
 def main():
     args = json.loads(sys.argv[1])
     try:
@@ -383,6 +436,8 @@ def main():
             return reintentar(lambda: op_contexto(doc, args))
         if op == "insertar":
             return op_insertar(acad, doc, args)
+        if op == "quitar":
+            return op_quitar(doc, args)
         return {"ok": False, "error": "op_desconocida", "detalle": str(op)}
     except Exception as e:
         return {"ok": False, "error": "fallo_diseno", "detalle": f"{type(e).__name__}: {e}",

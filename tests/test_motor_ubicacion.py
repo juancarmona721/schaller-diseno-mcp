@@ -206,3 +206,13 @@ def test_simbiosis_con_alias_y_rotulo_correcto():
     c = mu.colocacion("simbiosi", 0, 0)                     # alias de quien lo escribe sin la ultima S
     assert c["producto"] == "simbiosis" and c["bloque"] == "SIMBIOSI"      # el bloque del plano se llama SIMBIOSI
     assert c["etiqueta"]["texto"] == "SIMBIOSIS"                          # el rotulo es el nombre real del producto
+
+
+def test_simbiosis_tiene_definicion_interna_con_el_tamano_aprobado():
+    c = mu.DEFINICIONES_INTERNAS["SIMBIOSI"]["circulos"]
+    assert len(c) == 9
+    xs = [x - r for x, _, r in c] + [x + r for x, _, r in c]
+    ys = [y - r for _, y, r in c] + [y + r for _, y, r in c]
+    assert max(xs) - min(xs) == pytest.approx(0.5485, abs=0.002) and max(ys) - min(ys) == pytest.approx(0.402, abs=0.002)
+    assert (max(xs) + min(xs)) / 2 == pytest.approx(0, abs=0.01)          # centrada en el origen: ya no cae a 3 m del punto
+    assert mu.PRODUCTOS["simbiosis"]["bloque"] in mu.DEFINICIONES_INTERNAS

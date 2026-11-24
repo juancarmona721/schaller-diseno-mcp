@@ -656,6 +656,21 @@ def ubicar_en_seleccion(intencion: str, ejecutar: bool = True) -> dict:
 # UBICACION POR ANFITRION (geometria real, sin coordenadas fijas): listar_anfitriones -> ubicar_en_anfitrion
 # ---------------------------------------------------------------------------------------------------------------------
 @mcp.tool()
+def quitar_colocaciones(ejecutar: bool = False, confirmacion: str | None = None) -> dict:
+    """BORRA lo que este MCP coloco: SOLO las entidades de las capas SCH_ILUMINACION y SCH_AUDIO (luminarias, parlantes, tiras, rotulos).
+    Nunca toca otras capas (mobiliario, arquitectura, vegetacion) ni borra las capas. Sirve para repetir pruebas.
+
+    Ensayo por defecto: cuenta que se borraria. En planos grandes exige `confirmacion` (CANDADO: el codigo que aparece en la linea de
+    comandos de AutoCAD; pidelo a la persona, nunca lo inventes). Es un borrado: antes de ejecutar=True confirma con la persona el
+    alcance. Ctrl+Z en AutoCAD lo deshace.
+    """
+    if (off := _escritura_off()):
+        return off
+    return acad.diseno({"op": "quitar", "ejecutar": bool(ejecutar), "confirmacion": confirmacion,
+                        "max_objetos": int(_escritura().get("max_objetos_dibujo", 300))}, **_diseno_tiempos())
+
+
+@mcp.tool()
 def catalogo_ubicacion() -> dict:
     """SOLO LECTURA: productos Schaller disponibles (bloque, capa, escala, rotulo) y recetas de ubicacion por anfitrion."""
     return {"ok": True, **motor_ubicacion.catalogo()}
