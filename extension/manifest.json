@@ -1,0 +1,32 @@
+{
+  "manifest_version": "0.3",
+  "name": "schaller-diseno",
+  "display_name": "Schaller Diseno (AutoCAD)",
+  "version": "1.0.0",
+  "description": "Ubica luminarias, parlantes y tiras LED en planos de AutoCAD a partir de la geometria real del plano.",
+  "long_description": "MCP de diseno de iluminacion y audio para AutoCAD. Requiere AutoCAD completo abierto y bloques_schaller.dwg. Esta extension solo lanza el servidor instalado con instalar.ps1 (carpeta .schaller-diseno del usuario).",
+  "author": {
+    "name": "Schaller Design Team"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {}
+    }
+  },
+  "tools": [
+    { "name": "estado_autocad", "description": "Comprueba que AutoCAD responde y que dibujo hay activo." },
+    { "name": "escanear_zonas", "description": "Detecta los espacios del plano (vivienda, oficina, hotel...)." },
+    { "name": "ubicar_en_anfitrion", "description": "Ubica productos segun la geometria real de un mueble (ensayo por defecto)." },
+    { "name": "quitar_colocaciones", "description": "Borra solo lo colocado por el MCP (capas SCH_ILUMINACION y SCH_AUDIO)." }
+  ],
+  "tools_generated": true,
+  "keywords": ["autocad", "iluminacion", "audio", "diseno"],
+  "compatibility": {
+    "platforms": ["win32"],
+    "runtimes": { "node": ">=16.0.0" }
+  }
+}

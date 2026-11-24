@@ -112,13 +112,20 @@ if ($env:SCHALLER_SIN_VERIFICAR -ne "1") {
     } finally { Pop-Location }
 }
 
-# 5. Registrar en Claude Desktop (conserva lo que ya tengas) ---------------------------
-Paso "Registrando en Claude Desktop..."
-$reg = Join-Path $InstallDir "registrar_claude.py"
-$argsReg = @($reg, $VenvPython, (Join-Path $InstallDir "server.py"))
-if ($env:SCHALLER_CLAUDE_CONFIG) { $argsReg += @("--config", $env:SCHALLER_CLAUDE_CONFIG) }
-& $VenvPython @argsReg
-if ($LASTEXITCODE -ne 0) { Fallo "No se pudo actualizar la configuracion de Claude Desktop (ver mensaje arriba). Tu archivo original no se modifico." }
+# 5. Conectar con Claude Desktop ----------------------------------------------------------
+# Modo normal: se registra en claude_desktop_config.json (conserva lo que ya tengas).
+# Modo extension (SCHALLER_MODO=extension): no toca ningun archivo de configuracion; se instala la extension .mcpb desde Claude Desktop.
+$modoExtension = ($env:SCHALLER_MODO -eq "extension")
+if ($modoExtension) {
+    Paso "Modo extension: se omite el archivo de configuracion de Claude Desktop."
+} else {
+    Paso "Registrando en Claude Desktop..."
+    $reg = Join-Path $InstallDir "registrar_claude.py"
+    $argsReg = @($reg, $VenvPython, (Join-Path $InstallDir "server.py"))
+    if ($env:SCHALLER_CLAUDE_CONFIG) { $argsReg += @("--config", $env:SCHALLER_CLAUDE_CONFIG) }
+    & $VenvPython @argsReg
+    if ($LASTEXITCODE -ne 0) { Fallo "No se pudo actualizar la configuracion de Claude Desktop (ver mensaje arriba). Tu archivo original no se modifico." }
+}
 
 # 6. AutoCAD y biblioteca de bloques --------------------------------------------------
 Paso "Preparando AutoCAD..."
@@ -157,12 +164,29 @@ if (-not $ready -and $biblio -and $env:SCHALLER_NO_ABRIR -ne "1") {
     try { Start-Process $biblio } catch { Write-Host "   No pude abrirla sola; abre $biblio en AutoCAD." -ForegroundColor Yellow }
 }
 
+$mcpb = Join-Path $InstallDir "extension\schaller-diseno.mcpb"
+if ($modoExtension) {
+    if (-not (Test-Path $mcpb)) { Fallo "No encuentro la extension ($mcpb). Vuelve a ejecutar el instalador para actualizar." }
+    if ($env:SCHALLER_NO_ABRIR -ne "1") {
+        Paso "Abriendo la extension en Claude Desktop: pulsa 'Instalar' en la ventana que aparece."
+        try { Start-Process $mcpb } catch { Write-Host "   No pude abrirla sola." -ForegroundColor Yellow }
+        try { Start-Process explorer.exe -ArgumentList "/select,`"$mcpb`"" } catch {}
+    }
+}
+
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host "  LISTO. Schaller MCP Diseno instalado." -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "1. CIERRA Claude Desktop por completo (icono de la bandeja > Quit) y vuelve a abrirlo." -ForegroundColor White
-Write-Host "2. En Settings > Developer veras 'schaller-diseno' con su interruptor." -ForegroundColor White
+if ($modoExtension) {
+    Write-Host "1. En Claude Desktop pulsa 'Instalar' en la ventana de la extension. Si no se abrio sola, arrastra este archivo a la ventana de Claude:" -ForegroundColor White
+    Write-Host "   $mcpb" -ForegroundColor White
+    Write-Host "2. Despues veras 'Schaller Diseno (AutoCAD)' en Settings > Extensions con su interruptor." -ForegroundColor White
+} else {
+    Write-Host "1. CIERRA Claude Desktop por completo (icono de la bandeja > Quit) y vuelve a abrirlo." -ForegroundColor White
+    Write-Host "2. En Settings > Developer veras 'schaller-diseno' con su interruptor." -ForegroundColor White
+    Write-Host "   Si NO aparece, repite la instalacion en modo extension: `$env:SCHALLER_MODO='extension'  y vuelve a ejecutar este instalador." -ForegroundColor Yellow
+}
 if ($ready) { Write-Host "3. AutoCAD ya esta listo con la biblioteca: puedes empezar a pedirle cosas a Claude." -ForegroundColor White }
 else { Write-Host "3. Abre tu plano en AutoCAD (con bloques_schaller.dwg abierto). Para comprobarlo: $VenvPython $cli diagnostico" -ForegroundColor White }
 Write-Host "==========================================================" -ForegroundColor Cyan
