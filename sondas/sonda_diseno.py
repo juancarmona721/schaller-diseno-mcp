@@ -364,6 +364,13 @@ def op_insertar(acad, doc, args):
             "desviacion_max_m": round(desv_max, 3), "objetos_en_modelo": total}
 
 
+def op_diagnostico(acad, doc):
+    """Estado de la sesion de AutoCAD: dibujo activo, dibujos abiertos y si la biblioteca bloques_schaller esta abierta."""
+    nombres = [str(d.Name) for d in acad.Documents]
+    return {"ok": True, "dibujo_activo": str(doc.Name), "documentos": nombres,
+            "biblioteca_abierta": any("bloques_schaller" in n.lower() for n in nombres)}
+
+
 def op_quitar(doc, args):
     """BORRA solo lo que colocamos: entidades de las capas SCH_ILUMINACION y SCH_AUDIO (nunca otras capas, nunca las capas en si)."""
     import collections
@@ -438,6 +445,8 @@ def main():
             return op_insertar(acad, doc, args)
         if op == "quitar":
             return op_quitar(doc, args)
+        if op == "diagnostico":
+            return reintentar(lambda: op_diagnostico(acad, doc))
         return {"ok": False, "error": "op_desconocida", "detalle": str(op)}
     except Exception as e:
         return {"ok": False, "error": "fallo_diseno", "detalle": f"{type(e).__name__}: {e}",

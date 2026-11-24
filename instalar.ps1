@@ -120,11 +120,49 @@ if ($env:SCHALLER_CLAUDE_CONFIG) { $argsReg += @("--config", $env:SCHALLER_CLAUD
 & $VenvPython @argsReg
 if ($LASTEXITCODE -ne 0) { Fallo "No se pudo actualizar la configuracion de Claude Desktop (ver mensaje arriba). Tu archivo original no se modifico." }
 
+# 6. AutoCAD y biblioteca de bloques --------------------------------------------------
+Paso "Preparando AutoCAD..."
+$acadExe = $null
+foreach ($raiz in @("$env:ProgramFiles\Autodesk", "${env:ProgramFiles(x86)}\Autodesk")) {
+    if ($raiz -and (Test-Path $raiz)) {
+        $acadExe = Get-ChildItem $raiz -Recurse -Depth 3 -Filter acad.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($acadExe) { break }
+    }
+}
+if (-not $acadExe) { $acadExe = Get-Process acad -ErrorAction SilentlyContinue | Select-Object -First 1 }
+if ($acadExe) { Write-Host "   AutoCAD completo detectado." -ForegroundColor Green }
+else { Write-Host "   No detecte AutoCAD completo en las rutas habituales. Si usas AutoCAD (no LT), ignora este aviso; AutoCAD LT no sirve." -ForegroundColor Yellow }
+
+$biblio = $env:SCHALLER_BIBLIOTECA
+if (-not $biblio) {
+    $raices = @("$env:USERPROFILE\Downloads", "$env:USERPROFILE\Desktop", "$env:USERPROFILE\Documents")
+    $raices += (Get-ChildItem $env:USERPROFILE -Directory -Filter "OneDrive*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    $hallados = foreach ($r in $raices) {
+        if (Test-Path $r) { Get-ChildItem $r -Recurse -Depth 4 -Filter "bloques_schaller*.dwg" -File -ErrorAction SilentlyContinue }
+    }
+    $mejor = $hallados | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($mejor) { $biblio = $mejor.FullName }
+}
+if ($biblio -and (Test-Path $biblio)) { Write-Host "   Biblioteca encontrada: $biblio" -ForegroundColor Green }
+else { $biblio = $null; Write-Host "   No encontre bloques_schaller.dwg. Guardalo en Documentos y vuelve a ejecutar este instalador, o abrelo a mano en AutoCAD." -ForegroundColor Yellow }
+
+$cli = Join-Path $InstallDir "schaller_cli.py"
+$ready = $false
+if (Test-Path $cli) {
+    Push-Location $InstallDir
+    try { & $VenvPython $cli diagnostico; $ready = ($LASTEXITCODE -eq 0) } catch {} finally { Pop-Location }
+}
+if (-not $ready -and $biblio -and $env:SCHALLER_NO_ABRIR -ne "1") {
+    Paso "Abriendo la biblioteca en AutoCAD (puede tardar un momento)..."
+    try { Start-Process $biblio } catch { Write-Host "   No pude abrirla sola; abre $biblio en AutoCAD." -ForegroundColor Yellow }
+}
+
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host "  LISTO. Schaller MCP Diseno instalado." -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host "1. CIERRA Claude Desktop por completo (icono de la bandeja > Quit) y vuelve a abrirlo." -ForegroundColor White
-Write-Host "2. Ve a Settings > Developer: veras 'schaller-diseno' con su interruptor." -ForegroundColor White
-Write-Host "3. Abre AutoCAD con 'bloques_schaller.dwg' y el plano donde vas a trabajar." -ForegroundColor White
+Write-Host "2. En Settings > Developer veras 'schaller-diseno' con su interruptor." -ForegroundColor White
+if ($ready) { Write-Host "3. AutoCAD ya esta listo con la biblioteca: puedes empezar a pedirle cosas a Claude." -ForegroundColor White }
+else { Write-Host "3. Abre tu plano en AutoCAD (con bloques_schaller.dwg abierto). Para comprobarlo: $VenvPython $cli diagnostico" -ForegroundColor White }
 Write-Host "==========================================================" -ForegroundColor Cyan
