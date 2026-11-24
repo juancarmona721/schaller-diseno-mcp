@@ -2,6 +2,13 @@
 
 Tiempo: unos 3 minutos. No necesitas saber programar.
 
+## El comando (pégalo en PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 | iex
+```
+Eso instala el MCP, lo conecta a Claude Desktop, comprueba AutoCAD, **busca `bloques_schaller.dwg` y lo abre** en AutoCAD, y termina con un diagnóstico (`[OK] ... todo listo`).
+Después solo cierra Claude Desktop por completo (bandeja, *Quit*) y ábrelo otra vez.
+
 ## Antes de empezar
 Necesitas en tu PC (Windows):
 - **AutoCAD completo** (no LT) y **Claude Desktop** instalados.
@@ -9,13 +16,8 @@ Necesitas en tu PC (Windows):
 - Python 3.11 o superior: si no lo tienes, el instalador intenta instalarlo solo. Git **no** hace falta.
 
 ## Paso 1: instalar (una sola línea)
-Abre **PowerShell** (tecla Windows, escribe `PowerShell`, Enter) y pega:
-
-```powershell
-irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 | iex
-```
-
-Espera a ver **`LISTO. Schaller MCP Diseno instalado.`** Si algo falla, el mensaje en rojo dice qué.
+Abre **PowerShell** (tecla Windows, escribe `PowerShell`, Enter), pega el comando de arriba y espera a ver **`LISTO. Schaller MCP Diseno instalado.`** Si algo falla, el mensaje en rojo dice qué.
+El instalador busca `bloques_schaller.dwg` en Descargas, Escritorio, Documentos y OneDrive. Si lo guardaste en otro lado, indica la ruta antes: `$env:SCHALLER_BIBLIOTECA = "C:utaloques_schaller.dwg"`.
 
 Alternativa sin internet: si Juan te pasó la carpeta del proyecto, haz doble clic en **`instalar_equipo.bat`**.
 
@@ -26,7 +28,8 @@ Ciérralo **por completo** (icono de la bandeja junto al reloj, clic derecho, *Q
 Ve a **Settings, Developer**: debe aparecer **`schaller-diseno`** con su interruptor encendido.
 
 ## Paso 3: cada vez que vayas a trabajar
-1. Abre AutoCAD con **`bloques_schaller.dwg`** y **el plano donde vas a trabajar**. La biblioteca debe quedar abierta: de ahí se copian los bloques.
+1. Abre AutoCAD con **`bloques_schaller.dwg`** (el instalador ya lo abre; si cerraste AutoCAD, ábrelo de nuevo) y **el plano donde vas a trabajar**. La biblioteca debe quedar abierta: de ahí se copian los bloques.
+   Para comprobar que todo está bien, en PowerShell: `& "$env:USERPROFILE\.schaller-diseno\.venv\Scripts\python.exe" "$env:USERPROFILE\.schaller-diseno\schaller_cli.py" diagnostico`
 2. En Claude Desktop, escribe por ejemplo: *"Revisa el estado de AutoCAD"*. Debe responder con tu dibujo activo.
 3. Pide lo que necesites. Ejemplos:
    - *"Escanea las zonas del plano"*
