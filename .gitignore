@@ -33,3 +33,4 @@ fichas/
 # Datos locales de cada proyecto (pueden contener datos del cliente): NO versionar
 perfiles/
 cache/
+.mcp.json
