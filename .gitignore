@@ -29,3 +29,7 @@ fichas/
 .claude/
 .vscode/
 .idea/
+
+# Datos locales de cada proyecto (pueden contener datos del cliente): NO versionar
+perfiles/
+cache/

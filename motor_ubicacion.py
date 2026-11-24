@@ -19,7 +19,7 @@ PRODUCTOS = {
     "cctevo58":       {"bloque": "CCTEvo Architectural_58_Targetti", "capa": "SCH_ILUMINACION", "descripcion": "Proyector CCTEvo 58 (Targetti)"},
     "cctevo160":      {"bloque": "CCTEvo Architectural_160_Targetti", "capa": "SCH_ILUMINACION", "descripcion": "Proyector CCTEvo 160 (Targetti)"},
     "l7":             {"bloque": "FORTYEIGHT Label_7_Targetti", "capa": "SCH_ILUMINACION", "frente": 0.0, "descripcion": "Proyector FORTYEIGHT Label 7 (Targetti)"},
-    "simbiosi":       {"bloque": "SIMBIOSI", "capa": "SCH_ILUMINACION", "ancla": "bbox", "descripcion": "Suspension SIMBIOSI (Davide Groppi)"},
+    "simbiosis":      {"bloque": "SIMBIOSI", "capa": "SCH_ILUMINACION", "ancla": "bbox", "descripcion": "Suspension SIMBIOSIS (Davide Groppi); el bloque en los planos se llama SIMBIOSI"},
     "moon60":         {"bloque": "Moon_60_Davide Groppi", "capa": "SCH_ILUMINACION", "descripcion": "Suspension Moon 60 (Davide Groppi)"},
     "durastrip_ip68": {"bloque": "Durastrip IP68_45W_Targetti", "capa": "SCH_ILUMINACION", "lineal": True, "descripcion": "Tira LED Durastrip IP68 45W"},
     "durastrip_ip20": {"bloque": "Durastrip IP20_75W_Targetti", "capa": "SCH_ILUMINACION", "lineal": True, "descripcion": "Tira LED Durastrip IP20 75W"},
@@ -30,7 +30,7 @@ PRODUCTOS = {
 
 # Dimension mayor REAL (m) de cada bloque tal como se ve en el diseno aprobado (medida de las instancias de la Villa).
 # Sirve para autocalibrar la escala: definiciones en mm (biblioteca) o en m (convertidas a mano) y planos en otras unidades.
-TAM_M = {"cctevo58": 0.254, "cctevo160": 0.423, "l7": 0.320, "simbiosi": 0.548, "moon60": 0.692,
+TAM_M = {"cctevo58": 0.254, "cctevo160": 0.423, "l7": 0.320, "simbiosis": 0.548, "moon60": 0.692,
          "durastrip_ip68": 1.808, "durastrip_ip20": 1.816, "ci160": 0.450, "ci200qr": 0.591, "ci200qs": 0.582}
 
 CAPAS_COLOR = {"SCH_ILUMINACION": 4, "SCH_AUDIO": 6}
@@ -159,7 +159,11 @@ def escala_por_medida(d_def: float | None, tam_m: float | None, unidad_m: float,
     return escala_catalogo, f"catalogo (la medida no cuadra: escala ideal {ideal:.4g})"
 
 
+ALIAS_PRODUCTOS = {"simbiosi": "simbiosis"}      # nombres que la gente escribe mal o abrevia -> clave del catalogo
+
+
 def colocacion(producto: str, x: float, y: float, rot: float = 0.0, etiquetar: bool = True, nota: str = "") -> dict:
+    producto = ALIAS_PRODUCTOS.get(str(producto).strip().lower(), str(producto).strip().lower())
     if producto not in PRODUCTOS:
         raise ErrorUbicacion(f"Producto '{producto}' no esta en el catalogo. Opciones: {', '.join(sorted(PRODUCTOS))}.")
     p = PRODUCTOS[producto]
@@ -222,7 +226,7 @@ def receta_centro(host: dict, op: dict) -> tuple[list, list]:
     r = rect(host)
     prod = op.get("producto")
     if not prod:
-        raise ErrorUbicacion("receta 'centro' necesita producto (ej. simbiosi, moon60, ci160, ci200qr).")
+        raise ErrorUbicacion("receta 'centro' necesita producto (ej. simbiosis, moon60, ci160, ci200qr).")
     x, y = r["cx"] + float(op.get("du", 0)), r["cy"] + float(op.get("dv", 0))
     return [colocacion(prod, x, y, math.radians(float(op.get("rotacion_grados", 0))), bool(op.get("etiquetar", True)), "centro del anfitrion")], []
 

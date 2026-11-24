@@ -11,6 +11,7 @@ import acad
 import fichas
 import motor_ubicacion
 import productos
+import zonas_motor
 import referencias
 
 AQUI = Path(__file__).resolve().parent
@@ -434,24 +435,107 @@ def ver_plano(destino_contiene: str | None = None, limite_objetos: int = 20000, 
     return acad.ver_plano(destino_contiene, int(limite_objetos), int(max_espacios), **_tiempos())
 
 
-@mcp.tool()
-def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = False) -> dict:
-    """SOLO LECTURA ULTRA-RAPIDO: detecta y lista las zonas y ambientes del plano activo.
+CARPETA_PERFILES = AQUI / "perfiles"          # datos propios de cada proyecto (roles de bloques, zonas manuales): NO se versionan
+CARPETA_CACHE = AQUI / "cache"
+VOCAB = zonas_motor.cargar_vocabulario()
 
-    Si ya se escaneo el dibujo actual, devuelve la informacion al instante (< 0.05 s) desde cache en memoria.
-    Usa forzar_recarga=True si cambiaste de dibujo o modificaste los textos en AutoCAD.
-    """
-    if not forzar_recarga:
+
+def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict:
+    """Zonas del dibujo ACTIVO. La cache se identifica por dibujo + numero de objetos + perfil, asi que cambiar de plano no mezcla datos."""
+    est = acad.estado(timeout_s=float(CFG.get("autocad", {}).get("timeout_s", 10)))
+    if not est.get("ok"):
+        return est
+    nombre = est.get("dibujo_activo")
+    if not nombre:
+        return {"ok": False, "error": "sin_dibujo", "detalle": "No hay ningun dibujo activo en AutoCAD."}
+    perfil = zonas_motor.cargar_perfil(CARPETA_PERFILES, nombre)
+    clave = zonas_motor.clave_cache(nombre, int(est.get("objetos_en_modelo") or 0), perfil, tipologia, zonas_motor.version_motor())
+    ruta = CARPETA_CACHE / f"zonas_{zonas_motor.slug_proyecto(nombre)}_{clave}.json"
+    if not forzar and ruta.is_file():
         try:
-            cache_p = Path(__file__).resolve().parent / "zonas_activas.json"
-            if cache_p.exists():
-                with open(cache_p, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if data.get("zonas"):
-                        return {"ok": True, "origen": "cache_rapido", **data}
-        except Exception:
+            return {**json.loads(ruta.read_text(encoding="utf-8")), "origen_datos": "cache"}
+        except (OSError, ValueError):
             pass
-    return acad.escanear_zonas(destino_contiene, **_tiempos())
+    t = _tiempos()
+    raw = acad.plano_crudo(timeout_s=t["timeout_s"], timeout_lectura_s=max(t["timeout_lectura_s"], 60.0))
+    if not raw.get("ok"):
+        return raw
+    res = zonas_motor.construir_zonas(raw, VOCAB, perfil, tipologia)
+    res = {"ok": True, "plano": raw.get("plano"), "origen_datos": "lectura", "tiempo_lectura_s": raw.get("tiempo_lectura_s"),
+           "leido": {"textos": len(raw["textos"]), "poligonos": len(raw["poligonos"]), "bloques": len(raw["bloques"]),
+                     "elementos_en_contenedores": raw.get("elementos_en_contenedores", 0)},
+           "avisos": raw.get("avisos", []), **res}
+    try:
+        CARPETA_CACHE.mkdir(exist_ok=True)
+        ruta.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+    return res
+
+
+@mcp.tool()
+def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = False, tipologia: str | None = None) -> dict:
+    """SOLO LECTURA: detecta zonas/espacios del plano ACTIVO para CUALQUIER tipo de proyecto (vivienda, oficina, hotel, comercial,
+    restaurante, salud, educacion, industrial). Se adapta al plano en vez de asumir una casa.
+
+    Evidencia: textos con nombre de espacio (vocabulario editable vocabulario_espacios.json, es/en/it) + poligono cerrado que los
+    contiene (limites y area reales); roles de mobiliario (cama, escritorio, mostrador...) por nombre, por vocabulario o por el
+    PERFIL del proyecto; y, sin textos ni poligonos, zonas inferidas por agrupamiento (confianza baja).
+    Devuelve zonas (nombre, tipo_espacio, x, y, bbox, area_m2, origen, confianza, muebles), la tipologia detectada del proyecto y
+    `sugerencias_roles`: bloques con nombre anonimo que conviene clasificar con perfil_proyecto(accion='rol').
+    Cache por dibujo; forzar_recarga=True si cambiaste el plano sin cambiar su numero de objetos. tipologia fuerza el tipo de proyecto.
+    En planos reales los nombres de espacios y bloques pueden ser datos del cliente: no los muestres en el chat sin necesidad.
+    """
+    return _zonas_del_plano(forzar_recarga, tipologia)
+
+
+@mcp.tool()
+def perfil_proyecto(accion: str = "ver", bloque: str | None = None, rol: str | None = None, nombre: str | None = None,
+                    tipo: str | None = None, x: float | None = None, y: float | None = None, tipologia: str | None = None) -> dict:
+    """Perfil del PROYECTO ACTIVO: lo que es propio de este plano y el escaner no puede adivinar. Solo escribe un JSON local (perfiles/),
+    no toca el dibujo. Acciones:
+    - 'ver': muestra el perfil y los roles disponibles.
+    - 'rol': bloque + rol -> clasifica un bloque anonimo (ej. bloque 'Mod-120', rol 'cama'); rol vacio lo quita.
+    - 'ignorar': bloque -> el escaner lo descarta (puertas, vegetacion, marcos...).
+    - 'zona': nombre + tipo + x + y -> agrega una zona manual (ej. un espacio sin texto ni poligono).
+    - 'tipologia': tipologia -> fija el tipo de proyecto (vivienda, oficina, hotel, comercial, restaurante, salud, educacion, industrial).
+    """
+    est = acad.estado(timeout_s=float(CFG.get("autocad", {}).get("timeout_s", 10)))
+    if not est.get("ok"):
+        return est
+    dibujo = est.get("dibujo_activo")
+    if not dibujo:
+        return {"ok": False, "error": "sin_dibujo", "detalle": "No hay ningun dibujo activo."}
+    perfil = zonas_motor.cargar_perfil(CARPETA_PERFILES, dibujo)
+    if accion == "ver":
+        return {"ok": True, "perfil": perfil, "roles_disponibles": VOCAB.nombres_roles, "tipologias": VOCAB.tipologias,
+                "archivo": f"perfiles/{zonas_motor.slug_proyecto(dibujo)}.json"}
+    if accion == "rol":
+        if not bloque:
+            return {"ok": False, "error": "falta_bloque"}
+        if rol and rol not in VOCAB.nombres_roles:
+            return {"ok": False, "error": "rol_desconocido", "detalle": f"Roles validos: {', '.join(VOCAB.nombres_roles)}."}
+        if rol:
+            perfil["roles_bloques"][bloque] = rol
+        else:
+            perfil["roles_bloques"].pop(bloque, None)
+    elif accion == "ignorar":
+        if not bloque:
+            return {"ok": False, "error": "falta_bloque"}
+        if bloque not in perfil["ignorar_bloques"]:
+            perfil["ignorar_bloques"].append(bloque)
+    elif accion == "zona":
+        if not nombre or x is None or y is None:
+            return {"ok": False, "error": "faltan_datos", "detalle": "Una zona manual necesita nombre, x e y (y opcionalmente tipo)."}
+        perfil["zonas_manuales"] = [z for z in perfil["zonas_manuales"] if z["nombre"] != nombre] + [{"nombre": nombre, "tipo": tipo or "otro", "x": x, "y": y}]
+    elif accion == "tipologia":
+        if tipologia not in VOCAB.tipologias:
+            return {"ok": False, "error": "tipologia_desconocida", "detalle": f"Opciones: {', '.join(VOCAB.tipologias)}."}
+        perfil["tipologia"] = tipologia
+    else:
+        return {"ok": False, "error": "accion_desconocida", "detalle": "Acciones: ver, rol, ignorar, zona, tipologia."}
+    zonas_motor.guardar_perfil(CARPETA_PERFILES, dibujo, perfil)
+    return {"ok": True, "perfil": perfil, "aviso": "Perfil guardado. Vuelve a llamar escanear_zonas: la cache se renueva sola."}
 
 
 @mcp.tool()
@@ -541,7 +625,7 @@ def ubicar_por_intencion(intencion: str, zona: str | None = None, zona_x: float 
     
     # Si se indico nombre de zona pero no coordenadas, resolver mediante escanear_zonas
     if zona and (zona_x is None or zona_y is None):
-        res_zonas = acad.escanear_zonas()
+        res_zonas = _zonas_del_plano()
         if res_zonas.get("ok"):
             zona_low = zona.lower()
             for z in res_zonas.get("zonas", []):

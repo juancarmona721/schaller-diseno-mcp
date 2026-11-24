@@ -1,0 +1,390 @@
+{
+ "_nota": "Vocabulario EDITABLE del escaner de zonas. 'espacios' se evalua en orden: gana el primero que coincida (lo especifico antes que lo general). 'grupos' son las tipologias de proyecto a las que apunta cada espacio. Agrega palabras de tu idioma o cliente aqui, sin tocar codigo.",
+ "tipologias": [
+  "vivienda",
+  "oficina",
+  "hotel",
+  "comercial",
+  "restaurante",
+  "salud",
+  "educacion",
+  "industrial"
+ ],
+ "espacios": [
+  {
+   "categoria": "sala_juntas",
+   "grupos": [
+    "oficina"
+   ],
+   "patron": "sala de (juntas|reuni|conferenc)|reuniones|meeting|boardroom|conference|sala de consejo|videoconferencia"
+  },
+  {
+   "categoria": "recepcion",
+   "grupos": [
+    "oficina",
+    "hotel",
+    "salud",
+    "comercial"
+   ],
+   "patron": "recepci[oó]n|reception|front desk|counter de"
+  },
+  {
+   "categoria": "lobby",
+   "grupos": [
+    "hotel",
+    "oficina"
+   ],
+   "patron": "\\blobby\\b|\\bvest[ií]bulo\\b|hall de entrada|foyer"
+  },
+  {
+   "categoria": "oficina",
+   "grupos": [
+    "oficina"
+   ],
+   "patron": "oficina|despacho|office|gerencia|direcci[oó]n|open ?space|workspace|puestos? de trabajo|coworking|ufficio"
+  },
+  {
+   "categoria": "servidores",
+   "grupos": [
+    "oficina",
+    "industrial"
+   ],
+   "patron": "server|servidores|data ?center|cuarto de (comunicaciones|telecom|rack)|\\bidf\\b|\\bmdf\\b"
+  },
+  {
+   "categoria": "consultorio",
+   "grupos": [
+    "salud"
+   ],
+   "patron": "consultorio|consulta|examen|urgencias|emergencia|enfermer[ií]a|triage|ambulatorio"
+  },
+  {
+   "categoria": "quirofano",
+   "grupos": [
+    "salud"
+   ],
+   "patron": "quir[oó]fano|cirug[ií]a|operating|sala de partos|\\buci\\b|cuidados intensivos"
+  },
+  {
+   "categoria": "sala_espera",
+   "grupos": [
+    "salud",
+    "oficina",
+    "comercial"
+   ],
+   "patron": "sala de espera|waiting|espera"
+  },
+  {
+   "categoria": "aula",
+   "grupos": [
+    "educacion"
+   ],
+   "patron": "\\baula|classroom|sal[oó]n de clase|laboratorio de|taller de"
+  },
+  {
+   "categoria": "auditorio",
+   "grupos": [
+    "educacion",
+    "oficina",
+    "hotel"
+   ],
+   "patron": "auditorio|auditorium|teatro|sal[oó]n de actos|anfiteatro"
+  },
+  {
+   "categoria": "habitacion_hotel",
+   "grupos": [
+    "hotel"
+   ],
+   "patron": "\\bsuite\\b|hotel room|guest ?room|habitaci[oó]n (tipo|est[aá]ndar|doble|sencilla|king|queen)"
+  },
+  {
+   "categoria": "spa",
+   "grupos": [
+    "hotel"
+   ],
+   "patron": "\\bspa\\b|sauna|turco|jacuzzi|masaje|piscina|\\bpool\\b|gimnasio|\\bgym\\b|fitness"
+  },
+  {
+   "categoria": "salon_eventos",
+   "grupos": [
+    "hotel",
+    "restaurante"
+   ],
+   "patron": "sal[oó]n (de )?(eventos|fiestas|banquetes|social)|ballroom|banquet|convenciones"
+  },
+  {
+   "categoria": "restaurante",
+   "grupos": [
+    "restaurante",
+    "hotel"
+   ],
+   "patron": "restaurante|restaurant|sal[oó]n de (mesas|restaurante)|trattoria|ristorante"
+  },
+  {
+   "categoria": "bar",
+   "grupos": [
+    "restaurante",
+    "hotel"
+   ],
+   "patron": "\\bbar\\b|barra|cocteler[ií]a"
+  },
+  {
+   "categoria": "cocina_industrial",
+   "grupos": [
+    "restaurante",
+    "hotel",
+    "industrial"
+   ],
+   "patron": "cocina (industrial|caliente|fr[ií]a|central|de producci[oó]n)|commissary|kitchen (hot|cold|prep)|pastry|panader[ií]a"
+  },
+  {
+   "categoria": "tienda",
+   "grupos": [
+    "comercial"
+   ],
+   "patron": "tienda|\\bstore\\b|showroom|sala de ventas|exhibici[oó]n|boutique|negozio|\\bretail\\b|piso de ventas|[aá]rea de ventas"
+  },
+  {
+   "categoria": "caja",
+   "grupos": [
+    "comercial",
+    "restaurante"
+   ],
+   "patron": "\\bcajas?\\b|checkout|cashier|\\bcassa\\b|punto de pago"
+  },
+  {
+   "categoria": "probadores",
+   "grupos": [
+    "comercial"
+   ],
+   "patron": "probador|fitting room|camerino|cabina de prueba"
+  },
+  {
+   "categoria": "bodega",
+   "grupos": [
+    "comercial",
+    "industrial",
+    "restaurante"
+   ],
+   "patron": "bodega|almac[eé]n|dep[oó]sito|storage|warehouse|magazzino|cuarto fr[ií]o|\\bcava\\b"
+  },
+  {
+   "categoria": "produccion",
+   "grupos": [
+    "industrial"
+   ],
+   "patron": "producci[oó]n|production|\\bnave\\b|planta de|ensamble|assembly|l[ií]nea de|taller|workshop|manufactura|laboratorio"
+  },
+  {
+   "categoria": "muelle",
+   "grupos": [
+    "industrial",
+    "comercial"
+   ],
+   "patron": "muelle|\\bdock\\b|despacho de|carga y descarga|loading"
+  },
+  {
+   "categoria": "cocina",
+   "grupos": [
+    "vivienda",
+    "restaurante",
+    "oficina"
+   ],
+   "patron": "cocina|kitchen|cucina|kitchenette|pantry|cafeter[ií]a|break room"
+  },
+  {
+   "categoria": "comedor",
+   "grupos": [
+    "vivienda",
+    "oficina"
+   ],
+   "patron": "comedor|dining|sala da pranzo|pranzo"
+  },
+  {
+   "categoria": "baño",
+   "grupos": [
+    "vivienda",
+    "oficina",
+    "hotel",
+    "comercial",
+    "restaurante",
+    "salud",
+    "educacion",
+    "industrial"
+   ],
+   "patron": "ba[nñ]o|bath|toilet|\\bwc\\b|aseo|sanitario|restroom|lavabo|bagno|vestuario|ducha"
+  },
+  {
+   "categoria": "alcoba",
+   "grupos": [
+    "vivienda",
+    "hotel"
+   ],
+   "patron": "alcoba|habitaci[oó]n|dormitorio|bedroom|\\bmaster\\b|suite|cuarto|camera da letto|\\bcamera\\b|rec[aá]mara"
+  },
+  {
+   "categoria": "vestier",
+   "grupos": [
+    "vivienda",
+    "hotel"
+   ],
+   "patron": "vestier|vestidor|closet|walk[- ]in|cabina armadio|guardarropa"
+  },
+  {
+   "categoria": "sala",
+   "grupos": [
+    "vivienda",
+    "hotel"
+   ],
+   "patron": "\\bsala\\b|living|\\bestar\\b|lounge|soggiorno|salotto|family room|tv room|sal[oó]n"
+  },
+  {
+   "categoria": "estudio",
+   "grupos": [
+    "vivienda",
+    "oficina",
+    "educacion"
+   ],
+   "patron": "estudio|\\bstudy\\b|biblioteca|library|\\bstudio\\b|librer[ií]a"
+  },
+  {
+   "categoria": "terraza",
+   "grupos": [
+    "vivienda",
+    "hotel",
+    "restaurante"
+   ],
+   "patron": "terraza|balc[oó]n|terrace|patio|\\bdeck\\b|terrazza|porche|jard[ií]n|garden"
+  },
+  {
+   "categoria": "lavanderia",
+   "grupos": [
+    "vivienda",
+    "hotel",
+    "salud"
+   ],
+   "patron": "lavander[ií]a|laundry|ropas|lavadero|cuarto de lavado"
+  },
+  {
+   "categoria": "garaje",
+   "grupos": [
+    "vivienda",
+    "oficina",
+    "comercial"
+   ],
+   "patron": "garaje|garage|parqueadero|parking|estacionamiento|cochera"
+  },
+  {
+   "categoria": "escalera",
+   "grupos": [
+    "vivienda",
+    "oficina",
+    "hotel",
+    "comercial",
+    "restaurante",
+    "salud",
+    "educacion",
+    "industrial"
+   ],
+   "patron": "escalera|\\bstair|\\bscala\\b"
+  },
+  {
+   "categoria": "ascensor",
+   "grupos": [
+    "oficina",
+    "hotel",
+    "comercial",
+    "salud",
+    "educacion"
+   ],
+   "patron": "ascensor|elevator|\\blift\\b|montacargas"
+  },
+  {
+   "categoria": "cuarto_tecnico",
+   "grupos": [
+    "oficina",
+    "hotel",
+    "comercial",
+    "industrial"
+   ],
+   "patron": "cuarto t[eé]cnico|cuarto el[eé]ctrico|tablero|\\bshaft\\b|ducto|utility|mec[aá]nico|planta el[eé]ctrica|subestaci[oó]n"
+  },
+  {
+   "categoria": "pasillo",
+   "grupos": [
+    "vivienda",
+    "oficina",
+    "hotel",
+    "comercial",
+    "restaurante",
+    "salud",
+    "educacion",
+    "industrial"
+   ],
+   "patron": "pasillo|corredor|corridor|\\bhall\\b|\\bacceso\\b|entrada|ingresso|circulaci[oó]n|distribuidor|antesala"
+  }
+ ],
+ "excluir_texto": "\\b(cinta|tira|perfil|spot|luminaria|accesorio|accesorios|detalle|toma|interruptor|escala|scale|fecha|date|arquitecto|propietario|cliente|notas?|observaciones?|proyecto|project|plano|sheet|lamina|revisi[oó]n|dibujo|drawn|norte|north|cota|nivel|npt|nfp|eje|ejes|cuadro|leyenda|legend)\\b",
+ "capas_rotulos": "rotulo|r[oó]tulo|room|space|espacio|ambiente|local|zona|nombre|label|a-area",
+ "contenedores": "base|arq|planta|plano|xref|arch|distrib|layout|piso|floor|nivel",
+ "roles": [
+  {
+   "rol": "cama",
+   "patron": "\\bbed\\b|cama|somier|colch[oó]n|\\bking\\b|\\bqueen\\b|\\blit\\b|letto"
+  },
+  {
+   "rol": "sanitario",
+   "patron": "\\bwc\\b|toilet|inodoro|lavamanos|lavabo|ducha|shower|bidet|sanitar|urinar|\\btina\\b|bathtub|washbasin|vanity"
+  },
+  {
+   "rol": "isla",
+   "patron": "\\bisla\\b|island"
+  },
+  {
+   "rol": "cocina_mueble",
+   "patron": "cocina|kitchen|cucina|mastercool|oven|horno|\\bsink\\b|fregadero|lavaplatos|estufa|cooktop|refriger|nevera|fridge|campana"
+  },
+  {
+   "rol": "mesa_reuniones",
+   "patron": "reuni|meeting|conference|boardroom|juntas"
+  },
+  {
+   "rol": "mesa_comedor",
+   "patron": "dining|comedor|mesa de comer|\\bmesa\\b|\\btable\\b|tavolo|concorde"
+  },
+  {
+   "rol": "escritorio",
+   "patron": "escritorio|\\bdesk\\b|workstation|puesto de trabajo|scrivania|cub[ií]culo"
+  },
+  {
+   "rol": "mostrador",
+   "patron": "mostrador|counter|recepci|reception|banco de atenci|bancone"
+  },
+  {
+   "rol": "vitrina_exhibidor",
+   "patron": "vitrina|display|exhibidor|g[oó]ndola|gondola|showcase|anaquel"
+  },
+  {
+   "rol": "camilla",
+   "patron": "camilla|stretcher|gurney|exam table|mesa de examen"
+  },
+  {
+   "rol": "sofa",
+   "patron": "sof[aá]|\\bsofa\\b|couch|sectional|divano|poltrona|sill[oó]n|armchair|lounge chair|chaise"
+  }
+ ],
+ "ignorar_bloques": "vegetaci|matica|^planta$|puerta|\\bdoor\\b|\\basc\\b|ventana|window|\\bcota\\b|jardinera|sombrilla|\\beje\\b|\\bnivel\\b|north|\\bnorte\\b|titulo|title|marco|border|logo|membrete|cuadro de|north arrow|\\bescala\\b|mesa (de )?(noche|centro|auxiliar|lateral|luz)|mesita|nightstand|bedside|side table|coffee table|end table",
+ "rol_a_zona": {
+  "cama": "alcoba",
+  "sanitario": "baño",
+  "isla": "cocina",
+  "cocina_mueble": "cocina",
+  "mesa_comedor": "comedor",
+  "mesa_reuniones": "sala_juntas",
+  "escritorio": "oficina",
+  "mostrador": "recepcion",
+  "vitrina_exhibidor": "tienda",
+  "camilla": "consultorio",
+  "sofa": "sala"
+ }
+}

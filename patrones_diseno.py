@@ -145,7 +145,7 @@ REFERENCIAS_TECNICAS_OBLIGATORIAS = {
     "Ci160CRDS_KEF": ("Ci160CRDS", "SCH_AUDIO", 6),
     "Ci200QS Pared_KEF": ("Ci200QS", "SCH_AUDIO", 6),
     "CI200QR_": ("Ci200QR", "SCH_AUDIO", 6),
-    "SIMBIOSI": ("SIMBIOSI", "SCH_ILUMINACION", 7),
+    "SIMBIOSI": ("SIMBIOSIS", "SCH_ILUMINACION", 7),   # el BLOQUE se llama SIMBIOSI; el producto/rotulo es SIMBIOSIS
     "Durastrip IP68_45W_Targetti": ("Durastrip IP68", "SCH_ILUMINACION", 5),
     "Durastrip IP20_75W_Targetti": ("Durastrip IP20", "SCH_ILUMINACION", 6),
 }

@@ -68,7 +68,7 @@ def test_rotulos_solo_en_bloques_sin_referencia_estampada():
 def test_escalas_del_catalogo():
     c = mu.colocacion("cctevo58", 0, 0)
     assert c["escala"] == 0.001 and mu.colocacion("ci160", 0, 0)["escala"] == 1.0
-    assert mu.colocacion("simbiosi", 0, 0)["escala"] == 1.0 and mu.colocacion("simbiosi", 0, 0)["ancla"] == "bbox"
+    assert mu.colocacion("simbiosis", 0, 0)["escala"] == 1.0 and mu.colocacion("simbiosis", 0, 0)["ancla"] == "bbox"
 
 
 def test_mesa_4x_centrada_y_simetrica():
@@ -200,3 +200,9 @@ def test_escala_por_medida_sin_dato_usa_catalogo():
 
 def test_todos_los_productos_tienen_tamano_esperado():
     assert all(mu.TAM_M.get(k) for k in mu.PRODUCTOS)
+
+
+def test_simbiosis_con_alias_y_rotulo_correcto():
+    c = mu.colocacion("simbiosi", 0, 0)                     # alias de quien lo escribe sin la ultima S
+    assert c["producto"] == "simbiosis" and c["bloque"] == "SIMBIOSI"      # el bloque del plano se llama SIMBIOSI
+    assert c["etiqueta"]["texto"] == "SIMBIOSIS"                          # el rotulo es el nombre real del producto

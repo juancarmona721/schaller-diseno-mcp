@@ -34,7 +34,7 @@ DORMITORIO 2 (Piso 2, cama Gruppo-120, cabecera norte)
   - 2x parlantes de pared KEF Ci200QS en el muro frontal sur (Y=1463.93, X=4246.80 y 4248.10), apuntando a la cama.
 
 SALA PRINCIPAL (Piso 1): 3x FORTYEIGHT Label 7 hacia la mesa central (2 izq rot 0, 1 der rot 180).
-COMEDOR: 1x SIMBIOSI (Davide Groppi) sobre la mesa Gruppo-3 (X=4194.44, Y=1463.92).
+COMEDOR: 1x SIMBIOSIS (bloque SIMBIOSI) (Davide Groppi) sobre la mesa Gruppo-3 (X=4194.44, Y=1463.92).
 SALA ESTAR PISO 2: 1x KEF Ci200QR de techo (X=4248.14, Y=1456.38).
 BANOS PISO 2: 2x KEF Ci160CRDS de techo (X=4242.38 y 4244.22, Y=1466.32).
 
@@ -46,7 +46,7 @@ pero no en el diseno multi-zona del 24/11).
 --------------------------------------------------------------------------------
 A. UNIDADES (mm -> m)
    - Bloques en metros (escala 1.0): Ci160CRDS_KEF (0.19 m), CI200QR_ (0.28 m), Durastrip.
-   - Bloques en milimetros (escala 0.001): CCTEvo 58/160, FORTYEIGHT Label 7, Ci200QS Pared, SIMBIOSI.
+   - Bloques en milimetros (escala 0.001): CCTEvo 58/160, FORTYEIGHT Label 7, Ci200QS Pared, SIMBIOSIS.
    - Con sub-bloques anidados (CCTEvo): la escala anidada se queda en 1.0; escalar ambos da doble escala (1e-6) y el bloque desaparece.
    - La fuente unica de verdad es ESCALAS_BLOQUES_SCHALLER en patrones_diseno.py.
 
@@ -60,7 +60,7 @@ C. CENTRADO
 D. ROTULACION (H = 0.035 m, offset 0.04 a 0.12 m del simbolo)
    - Bloques con referencia estampada (NO llevan texto externo): CCTEvo 58 ("58A"), CCTEvo 160 ("160A"), FORTYEIGHT L7 ("L7").
    - Bloques sin referencia grafica (llevan rotulo): Ci160CRDS, Ci200QS, Ci200QR (SCH_AUDIO, magenta);
-     SIMBIOSI (SCH_ILUMINACION, blanco); Durastrip IP68 (SCH_ILUMINACION, azul).
+     SIMBIOSIS (SCH_ILUMINACION, blanco); Durastrip IP68 (SCH_ILUMINACION, azul).
    - No rotular con la marca ("KEF"): se descarto; va la referencia exacta.
    - Antes de crear un texto suelto, revisar si el bloque ya trae atributos (GetAttributes()).
    - Estos rotulos del plano NO son las REF de las fichas: las fichas llevan solo nombre y descripcion hasta cerrar el plano
@@ -145,13 +145,36 @@ LECCIONES TECNICAS NUEVAS (descubiertas probando en vivo)
     metros a mano (Ci160, Durastrip) y otros siguen en mm (CCTEvo, Ci200QS). Una escala fija por nombre falla segun el plano.
     Solucion: se inserta a 1, se MIDE la instancia y se compara con el tamano fisico esperado (TAM_M), eligiendo entre 1, 0.001,
     0.01, 0.0254... segun INSUNITS del plano. Medir la definicion no sirve (algunas entidades no devuelven caja).
-  - SIMBIOSI tiene su geometria a ~(2630, 1567) del origen y mide 0.55 (unidades): a 0.001 es invisible y ademas cae a 3 m del
-    punto. Se inserta a escala 1 y se centra su geometria en el punto (ancla 'bbox').  SIMBIOSI NO esta en bloques_schaller.dwg
+  - SIMBIOSIS (el bloque se llama SIMBIOSI) tiene su geometria a ~(2630, 1567) del origen y mide 0.55 (unidades): a 0.001 es invisible y ademas cae a 3 m del
+    punto. Se inserta a escala 1 y se centra su geometria en el punto (ancla 'bbox').  SIMBIOSIS NO esta en bloques_schaller.dwg
     (solo en V5): hay que agregarla a la biblioteca para que otros planos puedan importarla.
   - CopyObjects entre dibujos: crear el bloque en el destino y copiarle las ENTIDADES de la definicion (no la definicion).
   - AutoCAD responde "llamada rechazada" si esta ocupado: las sondas deben reintentar.
   - El dibujo en blanco nuevo usa milimetros: para probar en metros fijar INSUNITS=6.
   - ubicar_por_intencion (sonda_intenciones) escribe SIN candado de confirmacion ni control de duplicados: usar ubicar_en_anfitrion.
+
+ESCANER DE ZONAS ADAPTABLE (24/11/2026, sesion Claude)
+  Antes: vocabulario solo de vivienda, nombres y coordenadas de la villa metidos en el codigo (Simbolo-7/8, Gruppo-120/203,
+  4203.80/1464.85), solo leia 300 entidades para buscar contenedores y su cache (zonas_activas.json) no distinguia el dibujo:
+  al cambiar de plano devolvia las zonas del anterior. Tardaba 41 s.
+  Ahora (zonas_motor.py + vocabulario_espacios.json + sondas/sonda_zonas.py + perfiles/):
+  - La sonda solo LEE datos crudos (unidades, textos, poligonos cerrados, bloques con su caja, un nivel dentro de bloques contenedor,
+    atributos de rotulos); el motor puro decide. ~5 s la primera vez, 0.2 s con cache.
+  - Vocabulario editable: 36 tipos de espacio en 8 tipologias (vivienda, oficina, hotel, comercial, restaurante, salud, educacion,
+    industrial), es/en/it, y 11 roles de mobiliario. Se agrega vocabulario sin tocar codigo.
+  - Evidencia: texto + poligono (limites y area reales, area en m2 segun INSUNITS) > roles de mobiliario > agrupamiento (confianza
+    baja). Los muebles se agrupan solo con otros del MISMO tipo de espacio y por hueco entre cajas (no entre centros): dos sofas
+    enfrentados son una sala y su centro es el punto medio; un dormitorio junto a un bano no se fusionan.
+  - Tipologia del proyecto deducida de lo que se encuentra (o forzada). Texto desconocido solo cuenta si esta en capa de rotulos
+    y dentro de un recinto (evita ruido: escalas, notas, cotas, datos del cliente).
+  - perfil_proyecto: lo propio de cada plano (rol de un bloque anonimo, bloques a ignorar, zonas manuales, tipologia) en
+    perfiles/<proyecto>.json, local y NO versionado. El escaner sugiere los bloques anonimos grandes con su tamano.
+  - Cache por dibujo + numero de objetos + perfil + version (hash del codigo y del vocabulario): no se queda desactualizada.
+  - Guardian en tests: el codigo del escaner no puede contener nombres ni coordenadas de un proyecto concreto.
+  Prueba en la villa (sin textos de ambientes): con el perfil confirmado salen 8 zonas y tipologia 'vivienda'; el centro de la
+  sala principal (4203.79, 1464.85) coincide con la coordenada que antes estaba escrita a mano.
+  Pendiente: el banio calibrado a mano (4244.22/1466.32) no se puede derivar del bloque (su centro es el del conjunto sanitario);
+  usar receta 'centro' con du/dv. sonda_intenciones/sonda_patrones aun tienen nombres de la villa (lise, ata11...).
 
 PROXIMO OBJETIVO DECLARADO: "que todo quede bien ubicado a la primera". Disenos complejos (circuitos, keypads) = MCP Ingenieria.
 

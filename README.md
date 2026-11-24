@@ -28,6 +28,13 @@ primer muro. Es idempotente, rotula solo lo que no trae su referencia, calibra l
 el plano no trae muros en vez de adivinar. Recetas: `cama`, `pared_frente`, `centro`, `mesa_4x`, `tira_borde`, `linea`
 (`catalogo_ubicacion` las lista). Requiere `bloques_schaller.dwg` abierto para importar los bloques que falten.
 
+## Escaner de zonas (cualquier tipo de proyecto)
+`escanear_zonas` detecta los espacios del plano activo sin asumir que es una casa: nombres de espacios (vocabulario editable en
+`vocabulario_espacios.json`: vivienda, oficina, hotel, comercial, restaurante, salud, educacion, industrial; es/en/it), poligonos
+cerrados para sus limites y area, y roles de mobiliario. Si el plano no trae textos, infiere zonas por agrupamiento (confianza baja).
+Lo propio de cada proyecto se guarda con `perfil_proyecto` (clasificar bloques anonimos, ignorar bloques, zonas manuales, tipologia)
+en `perfiles/<proyecto>.json`, local y fuera de git. `escanear_zonas` sugiere los bloques anonimos grandes para clasificar.
+
 ## Herramientas
 | Herramienta | Fase | Que hace |
 |---|---|---|
