@@ -1007,5 +1007,8 @@ def registrar_referencias(items: list[dict], fuente: str, confirmado_por_usuario
     return {"ok": True, "guardadas": len(items), "total_confirmadas": len(todas), "archivo": REF_JSON.name}
 
 
+def main():
+    mcp.run()
+
 if __name__ == "__main__":
-    mcp.run()  # stdio; nunca escribir con print() aqui: stdout es el canal MCP
+    main()

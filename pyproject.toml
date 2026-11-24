@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "schaller-diseno-mcp"
+version = "1.0.0"
+description = "Servidor MCP de Diseno de Iluminacion y Audio para Schaller / AutoCAD"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Schaller Design Team" }
+]
+dependencies = [
+    "mcp>=1.3.0,<2",
+    "pywin32>=306",
+    "openpyxl>=3.1.2",
+    "pydantic>=2.0.0"
+]
+
+[project.scripts]
+schaller-diseno = "server:main"
+
+[tool.setuptools]
+py-modules = [
+    "server",
+    "acad",
+    "patrones_diseno",
+    "fichas",
+    "productos",
+    "referencias",
+    "render_simbolos",
+    "armar_excel",
+    "crear_biblioteca",
+    "crear_catalogo",
+    "extraer_textos",
+    "extraer_todos",
+    "leer_leyendas"
+]
