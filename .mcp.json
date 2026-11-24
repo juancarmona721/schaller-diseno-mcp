@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "diseno": {
+      "type": "stdio",
+      "command": "C:\\Users\\JuanEstebanCarmona\\Documents\\MCP Diseño\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\Users\\JuanEstebanCarmona\\Documents\\MCP Diseño\\server.py"
+      ],
+      "env": {}
+    }
+  }
+}
