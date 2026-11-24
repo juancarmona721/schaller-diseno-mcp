@@ -4,6 +4,8 @@ Servidor MCP **interno** (uso exclusivo del equipo, no publicar fuera de la orga
 planos de AutoCAD y armar fichas. Independiente del servidor `autocad-mcp`.
 
 ## Instalacion para cualquier persona del equipo
+(Guia paso a paso para compartir: `INSTALACION_EQUIPO.md`.)
+
 Requisitos: Windows, AutoCAD completo (no LT) y Claude Desktop. Python 3.11+ (el instalador intenta instalarlo con winget).
 
 1. Obtener la carpeta del proyecto (por el canal interno aprobado) y hacer **doble clic en `instalar_equipo.bat`**
