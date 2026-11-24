@@ -18,7 +18,6 @@ Necesitas en tu PC (Windows):
 ## Paso 1: instalar (una sola línea)
 Abre **PowerShell** (tecla Windows, escribe `PowerShell`, Enter), pega el comando de arriba y espera a ver **`LISTO. Schaller MCP Diseno instalado.`** Si algo falla, el mensaje en rojo dice qué.
 El instalador busca `bloques_schaller.dwg` en Descargas, Escritorio, Documentos y OneDrive. Si lo guardaste en otro lado, indica la ruta antes de pegar el comando: `$env:SCHALLER_BIBLIOTECA = "C:\ruta\bloques_schaller.dwg"`.
-utaloques_schaller.dwg"`.
 
 Alternativa sin internet: si Juan te pasó la carpeta del proyecto, haz doble clic en **`instalar_equipo.bat`**.
 
