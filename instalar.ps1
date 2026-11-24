@@ -7,18 +7,25 @@ Write-Host "==========================================================" -Foregro
 
 # 1. Determinar directorio de instalacion
 $InstallDir = "$env:USERPROFILE\.schaller-diseno"
-Write-Host "-> Instalando en: $InstallDir" -ForegroundColor Yellow
+Write-Host "-> Directorio destino: $InstallDir" -ForegroundColor Yellow
 
-if (-not (Test-Path $InstallDir)) {
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-}
-
-# 2. Copiar archivos del servidor
+# 2. Obtener los archivos (si corre desde web via irm, clona el repo)
 $CurrentDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-if (Test-Path "$CurrentDir\server.py") {
+if ($CurrentDir -and (Test-Path "$CurrentDir\server.py")) {
+    if (-not (Test-Path $InstallDir)) {
+        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    }
     Copy-Item "$CurrentDir\*.py" "$InstallDir\" -Force
     Copy-Item "$CurrentDir\requirements.txt" "$InstallDir\" -Force
     Copy-Item "$CurrentDir\config.toml" "$InstallDir\" -Force
+} else {
+    if (Test-Path "$InstallDir\.git") {
+        Write-Host "-> Actualizando repositorio existente..." -ForegroundColor Yellow
+        git -C "$InstallDir" pull
+    } else {
+        Write-Host "-> Descargando Schaller MCP Diseno desde GitHub..." -ForegroundColor Yellow
+        git clone https://github.com/juancarmona721/schaller-diseno-mcp.git "$InstallDir"
+    }
 }
 
 # 3. Crear entorno virtual
@@ -68,5 +75,5 @@ Write-Host "Tu Claude Desktop ya tiene acceso directo al servidor." -ForegroundC
 Write-Host "Instrucciones de uso:" -ForegroundColor Cyan
 Write-Host "1. Abre AutoCAD y ten abierto el archivo 'bloques_schaller.dwg'." -ForegroundColor White
 Write-Host "2. Abre el plano arquitectonico donde vas a trabajar." -ForegroundColor White
-Write-Host "3. Abre Claude Desktop o Claude Code y escribe tu solicitud." -ForegroundColor White
+Write-Host "3. Abre Claude Desktop o Claude Code y empieza a disenar." -ForegroundColor White
 Write-Host "==========================================================" -ForegroundColor Cyan
