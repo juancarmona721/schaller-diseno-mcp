@@ -38,7 +38,8 @@ py-modules = [
     "leer_leyendas",
     "registrar_claude",
     "motor_ubicacion",
-    "zonas_motor"
+    "zonas_motor",
+    "schaller_cli"
 ]
 
 packages = ["sondas"]
