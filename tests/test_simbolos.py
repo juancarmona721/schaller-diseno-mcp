@@ -1,6 +1,6 @@
 import pytest
 
-import _probe_simbolos as ps
+import sonda_simbolos as ps
 import productos
 import server
 

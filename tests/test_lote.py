@@ -1,6 +1,6 @@
 import pytest
 
-import _probe_escribir as pe
+import sonda_escribir as pe
 import productos
 import server
 from test_fase3 import Doc, MK

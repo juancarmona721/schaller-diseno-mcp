@@ -1,291 +1,115 @@
 ================================================================================
-HISTORIAL DE CAMBIOS Y ESTÁNDARES TÉCNICOS - PROYECTO MCP DISEÑO / AUTOCAD
+HISTORIAL DE CAMBIOS Y ESTANDARES TECNICOS - PROYECTO MCP DISENO / AUTOCAD
 ================================================================================
-Fecha de actualización: 23 de Noviembre de 2026
+Ultima actualizacion: 24 de Noviembre de 2026 (reorganizado; reemplaza el historial anterior)
+
 Archivos de trabajo activos en AutoCAD:
-  1. Base de datos / bloques fuente: bloques_schaller.dwg (Unidades: Milímetros, INSUNITS = 4)
-  2. Plano del proyecto / destino:   V5_ MOLTENI VILLA- CASA SCHALLER 20.10.26.dwg (Unidades: Metros, INSUNITS = 6)
+  1. Biblioteca de bloques: bloques_schaller.dwg (milimetros, INSUNITS = 4)
+  2. Plano destino: V5_ MOLTENI VILLA- CASA SCHALLER 20.10.26.dwg (metros, INSUNITS = 6)
+
+Estructura del repositorio:
+  server.py / acad.py ........ servidor MCP y puente COM (cada llamada COM corre en un proceso hijo)
+  sondas/sonda_*.py .......... scripts COM que usa acad.py en runtime (SE VERSIONAN; antes eran _probe_*.py ignorados por git)
+  patrones_diseno.py ......... minado de patrones + catalogo de escalas y rotulos
+  scratch_agente/ ............ scripts de un solo uso de Antigravity (NO se versionan; sirven de referencia)
+  tests/ ..................... pruebas (pytest; las de AutoCAD llevan el marcador "autocad")
 
 --------------------------------------------------------------------------------
-1. RESUMEN DE ELEMENTOS INCORPORADOS EN LA VILLA (V5_ MOLTENI VILLA)
+1. DISENO ACTUAL EN LA VILLA (estado vigente)
 --------------------------------------------------------------------------------
+Capas: SCH_ILUMINACION (color 4 cyan / 5 azul / 7 blanco segun elemento) y SCH_AUDIO (color 6 magenta).
 
-A. CAPAS CREADAS (DEDICADAS PARA SCHALLER):
-   - SCH_ILUMINACION (Color 4 Cyan / Color 5 Azul):
-     Contiene todas las luminarias de acento, decorativas y tiras LED.
-   - SCH_AUDIO (Color 6 Magenta):
-     Contiene todos los parlantes de techo KEF y sus etiquetas de referencia.
+COCINA
+  - 2x CCTEvo 160A entre isla y lavaplatos (X=4203.50 y 4206.50, Y=1457.26).
+  - 1x Durastrip IP68 45W (azul, color 5) sobre la poceta (X=4205.15, Y=1458.50).
+  - Se descarto el perimetro 8.00 x 4.40 m y la IP20 75W de la cocina.
 
-B. DORMITORIOS (PISO 1 Y PISO 2):
-   - CCTEvo Architectural 105 (Targetti):
-     * Piso 1 (Cama Gruppo-203): 6 luminarias rodeando la cama (2 lateral norte, 2 lateral sur, 2 a los pies).
-     * Piso 2 (Cama Gruppo-120): 6 luminarias rodeando la cama (2 lateral este, 2 lateral oeste, 2 a los pies).
-     * Visualización: Círculo concéntrico con cruceta de ópticas de 105 mm de diámetro y etiqueta integrada "105A".
-   - Durastrip IP20 45W (Targetti):
-     * Ubicada a todo lo ancho de la cabecera en ambas camas (rotada 90° en Piso 1, horizontal en Piso 2).
-     * Apariencia: Polilínea con grosor constante de 0.04 m (4 cm) y tipo de línea EWC segmentado.
+DORMITORIO 1 (Piso 1, cama Gruppo-203, cabecera oeste)
+  - 1x Durastrip IP68 45W vertical (X=4196.80, Y: 1455.50 a 1457.90; rotulo en 1456.70).
+  - 6x CCTEvo 58A: 2 norte, 2 sur, 2 a los pies (este).
 
-C. COMEDORES (PARLANTES DE TECHO CI160CRDS - KEF):
-   - Disposición: Formación paralela 2x2 (dos al frente de dos) sobre cada mesa.
-   - Ubicaciones:
-     1. Comedor Principal (Piso 1 - Mesa LISE de 8 puestos): 4 parlantes.
-     2. Comedor Piso 2 (Mesa redonda ATA11 de 5 puestos): 4 parlantes concéntricos.
-     3. Comedor Auxiliar / Desayunador (Piso 1 - Mesa ovalada): 4 parlantes.
-     4. Comedor de Terraza Exterior (Piso 1 - Mesa circular C=4198.40, 1464.87): 4 parlantes perfectamente centrados.
-   - Etiquetado: Cada parlante cuenta con una etiqueta técnica discreta ("Ci160CRDS") de 0.035 m de altura en capa SCH_AUDIO.
+DORMITORIO 2 (Piso 2, cama Gruppo-120, cabecera norte)
+  - 1x Durastrip IP68 45W horizontal (X: 4246.40 a 4248.50, Y=1467.12).
+  - CCTEvo 58A: [PENDIENTE DE DECIDIR: 6 simetricas (2 izq, 2 der, 2 pies) o 8 segun foto de diseno].
+  - 2x parlantes de pared KEF Ci200QS en el muro frontal sur (Y=1463.93, X=4246.80 y 4248.10), apuntando a la cama.
 
-D. SALAS DE ESTAR / ENTRETENIMIENTO (MOON 60 - DAVIDE GROPPI):
-   - Ubicaciones (1 luminaria central por sala sobre mesa de centro):
-     1. Sala Principal (Piso 1): Centrada entre los sofás curvos enfrentados.
-     2. Sala de Estar (Piso 2): Centrada sobre la mesa de centro del conjunto de sofás y sillones.
-   - Visualización: Círculo de 0.60 m de diámetro con texto integrado "MOON 60".
+SALA PRINCIPAL (Piso 1): 3x FORTYEIGHT Label 7 hacia la mesa central (2 izq rot 0, 1 der rot 180).
+COMEDOR: 1x SIMBIOSI (Davide Groppi) sobre la mesa Gruppo-3 (X=4194.44, Y=1463.92).
+SALA ESTAR PISO 2: 1x KEF Ci200QR de techo (X=4248.14, Y=1456.38).
+BANOS PISO 2: 2x KEF Ci160CRDS de techo (X=4242.38 y 4244.22, Y=1466.32).
 
-E. COCINA CENTRAL (DURASTRIP IP68 45W - TARGETTI):
-   - Ubicación: Techo de la cocina real pegada al muro de electrodomésticos (MASTERCOOL 36", hornos, lavaplatos, alacena).
-   - Geometría: Rectángulo perimetral cerrado de 8.00 m x 4.40 m (X: 4201.00 a 4209.00, Y: 1457.60 a 1462.00).
-   - Apariencia: Segmentación azul (Color 5) con tipo de línea EWC (tira LED estanca).
-
-F. BAÑOS - PARLANTES KEF CI160 (PISO 2):
-   - Baño 1 (Compartimento Privado Izquierdo):
-     * Coordenada centro: X = 4242.38 m, Y = 1466.32 m.
-     * Elemento: 1 parlante Ci160CRDS_KEF centrado en el compartimento.
-     * Etiqueta: "Ci160CRDS" discreta (altura 0.035 m), Color 6 (Magenta), Layer SCH_AUDIO.
-   - Baño 2 (Compartimento Privado Derecho):
-     * Coordenada centro: X = 4244.22 m, Y = 1466.32 m.
-     * Elemento: 1 parlante Ci160CRDS_KEF centrado en el compartimento.
-     * Etiqueta: "Ci160CRDS" discreta (altura 0.035 m), Color 6 (Magenta), Layer SCH_AUDIO.
+Pendiente de verificar contra el plano: Moon 60 en salas y parlantes 2x2 en comedores (aparecian en el historial anterior,
+pero no en el diseno multi-zona del 24/11).
 
 --------------------------------------------------------------------------------
-2. ESTÁNDARES TÉCNICOS Y REGLAS CLAVE PARA CLAUDE / AGENTES
+2. ESTANDARES TECNICOS (reglas para Claude y agentes)
 --------------------------------------------------------------------------------
+A. UNIDADES (mm -> m)
+   - Bloques en metros (escala 1.0): Ci160CRDS_KEF (0.19 m), CI200QR_ (0.28 m), Durastrip.
+   - Bloques en milimetros (escala 0.001): CCTEvo 58/160, FORTYEIGHT Label 7, Ci200QS Pared, SIMBIOSI.
+   - Con sub-bloques anidados (CCTEvo): la escala anidada se queda en 1.0; escalar ambos da doble escala (1e-6) y el bloque desaparece.
+   - La fuente unica de verdad es ESCALAS_BLOQUES_SCHALLER en patrones_diseno.py.
 
-A. CONVERSIÓN DE UNIDADES (MILÍMETROS A METROS):
-   - bloques_schaller.dwg maneja INSUNITS = 4 (mm).
-   - Los planos arquitectónicos suelen estar en INSUNITS = 6 (metros).
-   - Al copiar bloques de bloques_schaller al plano de proyecto:
-     1. Escalar entidades internas del bloque por 0.001.
-     2. MUY IMPORTANTE: Si el bloque contiene sub-bloques anidados (como CCTEvo 105),
-        la escala de la referencia anidada DEBE mantenerse en (1.0, 1.0, 1.0). Si se
-        escala el bloque y también la referencia anidada, se produce un error de doble escala
-        (10^-6) que vuelve invisible el dibujo de la luminaria.
+B. TIRAS LED (Durastrip, tipo de linea EWC)
+   - Polilinea con ConstantWidth = 0.04 y LinetypeScale = 0.5 (a 400 el trazo mide cientos de metros y se ve continua).
+   - IP68 45W: color 5 (azul). IP20 75W: color 6 (magenta).
 
-B. ESCALA DE TIPOS DE LÍNEA EN TIRAS LED (DURASTRIP / EWC):
-   - El tipo de línea 'EWC' genera el punteado/segmentado modular de la tira LED.
-   - En milímetros su LinetypeScale es 400.0.
-   - En metros, un LinetypeScale de 400.0 genera trazos de más de 300 metros, haciendo que
-     la línea se dibuje sólida y continua.
-   - REGLA: En planos en metros, establecer siempre en la polilínea:
-     * ConstantWidth = 0.04 (ancho de 4 cm).
-     * LinetypeScale = 0.5 (genera el corte modular visible ■ ■ ■ ■ ■).
+C. CENTRADO
+   - Nunca usar el BoundingBox de grupos con sillas. Usar la geometria anfitriona: Center del circulo, punto medio de arista o centroide.
 
-C. CENTRADO GEOMÉTRICO REAL:
-   - NUNCA usar el BoundingBox de grupos con sillas o elementos asimétricos para calcular el centro.
-   - Obtener directamente la geometría anfitriona:
-     * Mesas circulares: ent.Center de la entidad AcDbCircle.
-     * Mesas rectangulares o cabeceras: punto medio directo de la arista o centroide del polígono.
+D. ROTULACION (H = 0.035 m, offset 0.04 a 0.12 m del simbolo)
+   - Bloques con referencia estampada (NO llevan texto externo): CCTEvo 58 ("58A"), CCTEvo 160 ("160A"), FORTYEIGHT L7 ("L7").
+   - Bloques sin referencia grafica (llevan rotulo): Ci160CRDS, Ci200QS, Ci200QR (SCH_AUDIO, magenta);
+     SIMBIOSI (SCH_ILUMINACION, blanco); Durastrip IP68 (SCH_ILUMINACION, azul).
+   - No rotular con la marca ("KEF"): se descarto; va la referencia exacta.
+   - Antes de crear un texto suelto, revisar si el bloque ya trae atributos (GetAttributes()).
+   - Estos rotulos del plano NO son las REF de las fichas: las fichas llevan solo nombre y descripcion hasta cerrar el plano
+     y tener la cotizacion (regla pedir_referencias_finales).
 
-D. ETIQUETAS Y ATRIBUTOS:
-   - Antes de crear textos sueltos (AcDbText), revisar si el bloque ya cuenta con atributos (GetAttributes()).
-   - Si se requiere añadir la referencia del producto, mantener un tamaño discreto (altura 0.035 m a 0.04 m)
-     para evitar saturar la lectura del plano en vistas generales.
-
-E. CONEXIÓN COM EN WINDOWS (DESKTOP STATION):
-   - La llamada win32com.client.GetActiveObject('AutoCAD.Application') requiere acceder
-     a la estación de ventana interactiva WinSta0\\Default mediante win32service en un hilo
-     independiente para evitar restricciones de aislamiento de escritorio.
-
-================================================================================
-3. OBJETIVO ESTRATÉGICO: DISTRIBUCIÓN Y ACCESIBILIDAD PARA EL EQUIPO
-================================================================================
-
-A. PROPÓSITO GENERAL:
-   - Se busca que este servidor MCP de diseño y automatización en AutoCAD sea
-     inmediata y sumamente accesible para todos los miembros del equipo de diseño
-     (diseñadores, arquitectos y colaboradores), eliminando barreras técnicas de
-     configuración manual.
-
-B. EXPERIENCIA DE USUARIO OBJETIVO EN CLAUDE DESKTOP:
-   - El objetivo principal es que, tras un proceso de incorporación transparente y sencillo
-     (idealmente de un solo comando o un instalador automatizado), el MCP quede registrado
-     y visible directamente en la interfaz gráfica de Claude Desktop de cada usuario.
-   - Debe aparecer listado en la sección de servidores/conectores (Settings -> Developer)
-     con su respectivo interruptor deslizante (switch de activación/desactivación), permitiendo
-     a cada integrante del equipo encenderlo o apagarlo a voluntad con un solo clic según
-     el proyecto en el que esté trabajando.
-   - En la ventana de chat de Claude Desktop debe quedar disponible el acceso a las herramientas
-     (ícono de herramientas/martillo) listo para interactuar con los dibujos de AutoCAD abiertos.
-
-C. DISPONIBILIDAD DEL DIBUJO MAESTRO DE PRODUCTOS (bloques_schaller.dwg):
-   - El archivo 'bloques_schaller.dwg' es el núcleo de información técnica y geométrica
-     que contiene la biblioteca de productos, bloques y atributos de la marca.
-   - Se busca que cada diseñador cuente con este archivo accesible en su estación de trabajo
-     para que las funciones de consulta, comparación e inserción de biblioteca se ejecuten
-     sin fricción ni rutas rotas.
-
-================================================================================
-4. NUEVA ARQUITECTURA: ALTA VELOCIDAD Y MINERÍA DE PATRONES DE DISEÑO
-================================================================================
-
-A. FILOSOFÍA: DE LA GEOMETRÍA RÍGIDA A LA INTENCIÓN ARQUITECTÓNICA:
-   - En iluminación y audio de alta gama, la colocación nunca es una fórmula geométrica ciega
-     centrada en un cuarto vacío. Se guía por 'Intención':
-     * Acento de arte / paramentos: distancia fija a muros (0.45 a 0.65 m).
-     * Baño rasante / foseados: tiras perimetrales continuas con tipo de línea modular.
-     * Tarea en encimeras o islas: alineado con la superficie de trabajo.
-     * Audio comensales: pares estéreo enfrentados sobre la mesa, ignorando la asimetría de sillas.
-     * Audio individual privado: centrado en compartimento de baño.
-
-B. MÓDULOS CREADOS E INTEGRADOS:
-   1. `_probe_zonas.py`:
-      - Extractor inteligente de espacios por textos en capas de arquitectura, atributos de rótulos
-        o mobiliario anfitrión.
-   2. `patrones_diseno.py` y `_probe_patrones.py`:
-      - Minería de planos terminados. Extrae relaciones relativas (vectores de intención): distancia al muro
-        más cercano, elemento anfitrión, interdistancia entre elementos repetidos e intención clasificada.
-   3. `_probe_intenciones.py`:
-      - Motor paramétrico de colocación por intención arquitectónica sin necesidad de scripts en el chat.
-   4. `tests/test_patrones_intenciones.py`:
-      - Suite de pruebas unitarias validando la matemática de proyección punto-segmento, clasificación
-        de intenciones y extracción de patrones.
-
-C. HERRAMIENTAS NATIVAS MCP EN `server.py`:
-   - `escanear_zonas(destino_contiene)`: Lectura ultra rápida (0.1 s) de los recintos del plano.
-   - `extraer_patrones_diseno(destino_contiene)`: Analizador para aprender el ADN de diseño de proyectos terminados.
-   - `ubicar_por_intencion(intencion, zona, zona_x, zona_y, usar_seleccion, ejecutar)`: Colocación paramétrica
-     inmediata (1 a 2 s) según intención ('audio_comedor_4x', 'audio_bano_individual', 'perimetro_cocina_durastrip',
-     'combo_cama_iluminacion', 'moon_ambiente').
-   - `ubicar_en_seleccion(intencion, ejecutar)`: Aplica la intención de diseño directamente sobre lo que el
-     usuario tiene seleccionado con el ratón en AutoCAD.
-
-D. OPTIMIZACIÓN DE ALTA VELOCIDAD (BÚSQUEDA EN 1-2 MILISEGUNDOS):
-   - Filtro C++ en AutoCAD: Reemplazo del bucle lento 'for ms.Item(i)' por 'SelectionSet.Select(5, ...)'
-     con filtros DXF ('*TEXT', 'INSERT'). Redujo el tiempo de lectura de miles de entidades de 30s a ~2-5s.
-   - Limpiador de formato MText anidado: Algoritmo recursivo que remueve tags complejos de AutoCAD
-     (\A1;, \pqc;, \fCalibri...;, etc.) preservando intacto el nombre arquitectónico del espacio.
-   - Verificación de etiquetas ocultas / mobiliario: Confirmado que en 'extraccionbloques1.dwg',
-     el texto 'ALCOBA PRINCIPAL' se encuentra exactamente debajo del bloque 'YANG BED' (X=121.39, Y=-38.14)
-     en la capa '6 _ Text - General.Annotation', asociando automáticamente la cama al recinto.
-   - Caché local indexado: Creación de 'zonas_activas.json' que almacena el mapa mental del plano activo (16 zonas indexadas).
-   - Fallback Automático de Clustering Espacial (Planos sin nombres):
-     Cuando un plano no posee textos de ambientes (como 'extraccionbloques7.dwg' o 'V5_ MOLTENI VILLA'),
-     el escáner conmuta automáticamente a clustering de mobiliario anfitrión.
-     * Camas: Filtro estricto por huella y nomenclatura técnica (Gruppo-120, Gruppo-203, YANG BED),
-       evitando falsos positivos con alfombras o salas exteriores.
-     * Terrazas / Lounges: Detecta zonas de estar exteriores (ej. Gruppo-3).
-     * Baños: Calibra el centroide al compartimento sanitario privado (Y ≈ 1466.32 m),
-       evitando el sesgo hacia el vestier/closet del bloque anfitrión.
-     * Salas de Estar: Centra el punto en el eje de los sofás enfrentados (Y ≈ 1464.85 m),
-       garantizando que la Sala Principal y estares secundarios queden en el centro real del mobiliario.
-   - Herramienta 'buscar_en_plano(termino)': Búsqueda instantánea en 1 a 2 milisegundos (0.001 s)
-     por cualquier palabra clave (ej. 'comedor', 'cocina', 'alcoba', 'baño').
-   - Corrección de import en 'server.py': Adición de 'import json' que previene caídas al leer la caché.
-
-E. DISEÑO MULTI-ZONA INCORPORADO (24 DE NOVIEMBRE DE 2026):
-   - Unidades Mixtas en Biblioteca Schaller:
-     * Bloques dibujados en metros: Ci160CRDS_KEF (diámetro 0.19 m) y CI200QR_ (diámetro 0.28 m) -> escala de inserción 1.0.
-     * Bloques dibujados en milímetros: CCTEvo (58A, 160A), FORTYEIGHT Label 7, Ci200QS Pared -> escala de inserción 0.001.
-   - Cocina:
-     * 2 proyectores CCTEvo 160A entre isla y lavaplatos (X=4203.50 y 4206.50, Y=1457.26).
-     * Tira lineal Durastrip IP20 montada exactamente sobre la poceta del lavaplatos en dtjrtj (2D)
-       (X: 4204.30 a 4206.10, Y=1458.50, espesor 0.04 m, tipo de línea EWC segmentada).
-   - Habitaciones con Cama (Piso 1 y Piso 2):
-     * Cama Piso 1 (Gruppo-203, Cabecera Oeste): Tira Durastrip IP68 vertical (X=4196.80, Y: 1455.50 a 1457.90, EWC) + 6 proyectores CCTEvo 58A (2 norte, 2 sur, 2 a los pies al este).
-     * Cama Piso 2 (Gruppo-120, Cabecera Norte): Tira Durastrip IP68 horizontal (X: 4246.40 a 4248.50, Y=1467.12, EWC) + 6 proyectores CCTEvo 58A a distancia estrecha elegante (offset 0.25 m).
-     * 2 parlantes de pared KEF Ci200QS empotrados en la superficie interior norte del muro frontal (capa H-MUROS, Y=1463.93, X=4246.80 y 4248.10) apuntando al norte hacia la cama (rotación 180° / pi).
-   - Sala Principal:
-     * 3 proyectores FORTYEIGHT Label 7 (Targetti) orientados a mesa central: 2 izquierda (rot 0°) y 1 derecha (rot 180°).
-   - Comedor:
-     * 1 luminaria suspendida SIMBIOSI (Davide Groppi) sobre mesa Gruppo-3 (X=4194.44, Y=1463.92).
-   - Sala Estar Piso 2:
-     * 1 parlante de techo KEF Ci200QR en centro de estar Gruppo-5 (X=4248.14, Y=1456.38).
-   - Baños (Piso 2):
-     * 2 parlantes de techo KEF Ci160CRDS a escala natural 1.0 (X=4242.38 y 4244.22, Y=1466.32).
-
-================================================================================
-FIN DEL REGISTRO
-================================================================================
+E. CONEXION COM EN WINDOWS
+   - win32com GetActiveObject requiere la estacion WinSta0\Default (win32service) en el hilo que llama.
+   - Las sondas corren con "python -I": no ven la carpeta del script; las que importan modulos del repo agregan la raiz a sys.path.
 
 --------------------------------------------------------------------------------
-4. ACTUALIZACIÓN DE DISEÑO: DURASTRIP OFICIAL Y DISTRIBUCIÓN HABITACIONES (24/11/2026)
+3. OBJETIVO: DISTRIBUCION AL EQUIPO
 --------------------------------------------------------------------------------
-A. BLOQUES OFICIALES DURASTRIP (TARGETTI):
-   - Durastrip IP20 75W (Targetti):
-     * Color: 6 (Magenta).
-     * Apariencia: Polilínea con grosor constante 0.04 m, tipo de línea EWC segmentada (LinetypeScale = 0.5).
-     * Aplicación: Cocina sobre el módulo del lavaplatos/poceta (X=4205.15, Y=1458.50).
-   - Durastrip IP68 45W (Targetti):
-     * Color: 5 (Azul).
-     * Apariencia: Polilínea con grosor constante 0.04 m, tipo de línea EWC segmentada (LinetypeScale = 0.5).
-     * Aplicación: Cabecera Cama 2 (Piso 2, X=4247.45, Y=1467.12) y Cabecera Cama 1 (Piso 1, X=4196.80, Y=1456.70, rotada 90°).
-
-B. DISTRIBUCIÓN EXACTA DORMITORIO 2 (PISO 2 - REF. FOTO DE DISEÑO):
-   - Cabecera: 1x Durastrip IP68_45W_Targetti (Azul segmentada).
-   - Downlights (CCTEvo Architectural 58A) - Total 8 unidades con etiqueta discreta (0.04m):
-     * 2 unidades bajo la mesa de noche izquierda (TCD2: X=4245.65 y X=4246.15, Y=1466.42).
-     * 1 unidad bajo la mesa de noche derecha (TCD1: X=4248.84, Y=1466.42).
-     * 2 unidades en lateral izquierdo inferior (escalonadas: X=4245.65 Y=1465.40 y X=4246.15 Y=1465.50).
-     * 1 unidad en lateral derecho inferior (X=4248.84, Y=1465.45).
-     * 2 unidades a los pies de la cama (centradas: X=4247.05 y X=4247.85, Y=1464.35).
-   - Audio: 2x Parlantes de pared Ci200QS empotrados en el muro frontal sur (Y=1463.93) apuntando hacia la cama (aprobados por el usuario).
-
-C. ESTÁNDAR DE ROTULACIÓN HOMOGÉNEA Y DISCRETA (24/11/2026):
-   - Altura estándar de texto técnico: H = 0.035 m (3.5 cm en unidades de plano).
-   - Capas y colores según disciplina:
-     * SCH_ILUMINACION: Textos "58A", "160A", "SIMBIOSI" en Color 7 (Blanco); "L7" en Color 4 (Cyan); "IP68" en Color 5 (Azul); "IP20" en Color 6 (Magenta).
-     * SCH_AUDIO: Textos "Ci160CRDS", "Ci200QS", "Ci200QR" en Color 6 (Magenta).
-   - Distancia / Offset: Entre 0.04 m y 0.12 m al lado de la geometría del símbolo, garantizando legibilidad técnica sin saturar la vista global del plano.
+- Instalacion de un comando (instalar.ps1 / irm | iex) y registro en Claude Desktop con interruptor en Settings -> Developer.
+- bloques_schaller.dwg disponible en cada estacion para consultar, comparar e insertar biblioteca sin rutas rotas.
+- Correccion del 24/11: los scripts COM que usa acad.py estaban en _probe_*.py, excluidos por .gitignore, y no llegaban a quien
+  instalaba desde git/pip. Ahora estan en sondas/ (versionados y declarados en pyproject.toml).
 
 --------------------------------------------------------------------------------
-5. CORRECCIONES FINALES APLICADAS (24/11/2026):
+4. ARQUITECTURA DE UBICACION POR INTENCION
 --------------------------------------------------------------------------------
-1. Cocina: Durastrip corregida a IP68 45W (Azul, Color 5) sobre el lavaplatos (X=4205.15, Y=1458.50).
-2. Lámparas sin textos duplicados: CCTEvo 58A, CCTEvo 160A y FORTYEIGHT L7 ya incluyen sus nombres en la geometría del bloque; se eliminaron todos los textos sueltos redundantes.
-3. Habitación 2 sin duplicados: 6x CCTEvo Architectural 58A distribuidas simétricamente (2 izquierda, 2 derecha, 2 pies).
-4. Audio KEF: Todos los 5 parlantes (2 baños, 2 habitación 2 pared, 1 sala piso 2) rotulados con la marca técnica oficial "KEF" (H=0.035m, Magenta, SCH_AUDIO).
+Filosofia: la colocacion en iluminacion y audio de alta gama sigue una INTENCION (acento de arte a 0.45-0.65 m del muro,
+foseado perimetral, tarea sobre isla, audio de comensales en pares, audio individual en bano), no una formula ciega.
 
-C. ESTÁNDAR DE ROTULACIÓN HOMOGÉNEA Y DISCRETA (24/11/2026):
-   - Altura estándar de texto técnico: H = 0.035 m (3.5 cm en unidades de plano).
-   - Capas y colores según disciplina:
-     * SCH_ILUMINACION: Textos "58A", "160A", "SIMBIOSI" en Color 7 (Blanco); "L7" en Color 4 (Cyan); "IP68" en Color 5 (Azul); "IP20" en Color 6 (Magenta).
-     * SCH_AUDIO: Textos "Ci160CRDS", "Ci200QS", "Ci200QR" en Color 6 (Magenta).
-   - Distancia / Offset: Entre 0.04 m y 0.12 m al lado de la geometría del símbolo, garantizando legibilidad técnica sin saturar la vista global del plano.
+Herramientas MCP (server.py): escanear_zonas, consultar_zona, buscar_en_plano, extraer_patrones_diseno,
+ubicar_por_intencion (audio_comedor_4x, audio_bano_individual, perimetro_cocina_durastrip, combo_cama_iluminacion,
+moon_ambiente) y ubicar_en_seleccion.
 
---------------------------------------------------------------------------------
-5. CORRECCIONES FINALES APLICADAS (24/11/2026):
---------------------------------------------------------------------------------
-1. Cocina: Durastrip corregida a IP68 45W (Azul, Color 5) sobre el lavaplatos (X=4205.15, Y=1458.50).
-2. Lámparas sin textos duplicados: CCTEvo 58A, CCTEvo 160A y FORTYEIGHT L7 ya incluyen sus nombres en la geometría del bloque; se eliminaron todos los textos sueltos redundantes.
-3. Habitación 2 sin duplicados: 6x CCTEvo Architectural 58A distribuidas simétricamente (2 izquierda, 2 derecha, 2 pies).
-4. Audio KEF: Todos los 5 parlantes (2 baños, 2 habitación 2 pared, 1 sala piso 2) rotulados con la marca técnica oficial "KEF" (H=0.035m, Magenta, SCH_AUDIO).
+Optimizaciones: SelectionSet.Select con filtros DXF (de 30 s a 2-5 s), limpiador recursivo de formato MText, cache
+zonas_activas.json, clustering de mobiliario cuando el plano no tiene textos de ambientes, busqueda instantanea.
+
+Limitacion conocida: el diseno multi-zona del 24/11 se ejecuto con coordenadas fijas desde scripts (scratch_agente/), no con
+las intenciones del servidor. Ver seccion 6.
 
 --------------------------------------------------------------------------------
-6. CRITERIO DEFINITIVO DE REFERENCIAS Y ROTULACIÓN (24/11/2026):
+5. DELIMITACION MCP DISENO / MCP INGENIERIA
 --------------------------------------------------------------------------------
-REGLA DE ROTULACIÓN:
-1. Bloques con referencia estampada en su geometría interna:
-   - CCTEvo 58 (trae "58A"): NO se añade texto externo.
-   - CCTEvo 160 (trae "160A"): NO se añade texto externo.
-   - FORTYEIGHT Label 7 (trae "L7"): NO se añade texto externo.
-2. Bloques SIN referencia gráfica en su geometría: Se coloca su REFERENCIA EXACTA técnica (H=0.035m):
-   - Parlantes de baños: "Ci160CRDS" (Magenta, SCH_AUDIO).
-   - Parlantes de pared en Habitación 2: "Ci200QS" (Magenta, SCH_AUDIO).
-   - Parlante de techo Sala Piso 2: "Ci200QR" (Magenta, SCH_AUDIO).
-   - Lámpara colgante comedor: "SIMBIOSI" (Blanco, SCH_ILUMINACION).
-   - Tiras LED (Cocina, Cama 1, Cama 2): "Durastrip IP68" (Azul, SCH_ILUMINACION).
-
+DISENO (fase actual): identificar espacios; distribuir luminarias, tiras LED y parlantes; alinear y centrar con el mobiliario;
+insertar a escala real; rotular referencias sin duplicar.
+INGENIERIA (siguiente fase): arcos de encendido y circuitos de dimerizacion, keypads (1.20 m en accesos), cuadro de cargas,
+balance de fases, potencia, metrado de cableado y asignacion de modulos en tableros.
 
 --------------------------------------------------------------------------------
-7. DELIMITACIÓN ENTRE MCP DISEÑO Y MCP INGENIERÍA:
+6. PLAN DE OPTIMIZACION DE LA UBICACION (propuesto, sin implementar)
 --------------------------------------------------------------------------------
-A. ALCANCE DE MCP DISEÑO (FASE ACTUAL):
-   - Identificación de espacios y zonas arquitectónicas.
-   - Distribución espacial y estética de luminarias, tiras LED decorativas y parlantes.
-   - Alineación, simetría y centrado con el mobiliario (camas, comedores, islas, mesas de centro).
-   - Inserción a escala geométrica real (respetando unidades mm vs m).
-   - Rotulación técnica de referencias obligatorias (H=0.035m) sin duplicación en bloques con texto integrado.
-
-B. ALCANCE DE MCP INGENIERÍA (PRÓXIMA FASE / HERMANO MCP):
-   - Trazado de arcos de encendido y circuitos de dimerización por zona.
-   - Ubicación y conexionado de teclados de automatización (Keypads Lutron/Control4 a 1.20m en accesos).
-   - Cuadro de cargas, balance de fases, cálculo de potencia en vatios (W), amperajes y metrado de cableado.
-   - Asignación de módulos de potencia y módulos de control en tableros eléctricos.
+1. Motor puro de colocacion (sin COM): reglas que reciben geometria (rectangulo de la zona, mueble anfitrion, muros) y devuelven
+   posiciones; probables con pytest sin AutoCAD.
+2. Catalogo unico de productos (escala, capa, color, rotulo, offsets) en vez de duplicar constantes en cada sonda.
+3. Parametrizar por geometria real (tamano de mesa, cama, isla) en vez de offsets fijos (ej. +-0.45 m del comedor).
+4. Idempotencia: detectar un bloque ya puesto en la misma posicion y no duplicarlo (origen de los duplicados de la Habitacion 2).
+5. Validaciones previas: choque con muros y mobiliario, distancia minima entre luminarias, orientacion hacia el anfitrion.
+6. Ensayo con vista previa y trazabilidad (marcar lo insertado con XData para poder deshacer o rehacer por zona).
+7. Realimentar las reglas con los patrones extraidos de planos terminados.

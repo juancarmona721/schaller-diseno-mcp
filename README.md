@@ -1,19 +1,25 @@
-# diseno-mcp
+# Schaller MCP Diseno
 
-Servidor MCP **interno** (no subir a GitHub) para ayudar al equipo de diseno a ubicar productos
-en planos de AutoCAD y armar fichas de productos. Independiente del servidor `autocad-mcp`.
+Servidor MCP **interno** (uso exclusivo del equipo, no publicar fuera de la organizacion) para ubicar productos en
+planos de AutoCAD y armar fichas. Independiente del servidor `autocad-mcp`.
 
-Por ahora **todas las herramientas son de solo lectura**: no modifican AutoCAD ni la hoja de Excel.
+## Instalacion para cualquier persona del equipo
+Requisitos: Windows, AutoCAD completo (no LT) y Claude Desktop. Python 3.11+ (el instalador intenta instalarlo con winget).
 
-## Requisitos
-Windows, AutoCAD completo (no LT), Python 3.11 o superior (usa `tomllib`).
-Probado con AutoCAD 2026 (version interna 26.0s) y Python 3.12.
+1. Obtener la carpeta del proyecto (por el canal interno aprobado) y hacer **doble clic en `instalar_equipo.bat`**
+   (o `powershell -ExecutionPolicy Bypass -File instalar.ps1`).
+2. **Cerrar Claude Desktop por completo** (icono de la bandeja > Quit) y abrirlo de nuevo.
+3. En **Settings > Developer** aparece `schaller-diseno` con su interruptor; en el chat, el icono de herramientas.
+4. Abrir AutoCAD con `bloques_schaller.dwg` y el plano de trabajo.
 
-## Instalacion
-```
-python -m venv .venv
-.venv\Scripts\python.exe -m pip install "mcp>=1.30,<2" pywin32 openpyxl pytest
-```
+El instalador crea `%USERPROFILE%\.schaller-diseno`, su entorno virtual, verifica que el servidor arranca y agrega el MCP a
+`claude_desktop_config.json` **sin tocar tus otros servidores** (hace copia `.bak`; detecta tambien Claude Desktop de la
+Microsoft Store). Volver a ejecutarlo actualiza la instalacion. Variables opcionales: `SCHALLER_DIR`, `SCHALLER_REPO`,
+`SCHALLER_CLAUDE_CONFIG`.
+
+Desarrollo: `python -m venv .venv`, `.venv\Scripts\python.exe -m pip install -r requirements.txt`, `pytest`.
+Estructura: `server.py` y `acad.py` (servidor y puente COM), `sondas/` (scripts COM que ejecuta `acad.py`, se versionan),
+`scratch_agente/` (pruebas de un solo uso, no se versionan). Ver `HISTORIAL_CAMBIOS.txt`.
 
 ## Herramientas
 | Herramienta | Fase | Que hace |

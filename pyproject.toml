@@ -35,5 +35,8 @@ py-modules = [
     "crear_catalogo",
     "extraer_textos",
     "extraer_todos",
-    "leer_leyendas"
+    "leer_leyendas",
+    "registrar_claude"
 ]
+
+packages = ["sondas"]

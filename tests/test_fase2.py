@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-import _probe_bloques as probe
+import sonda_bloques as probe
 import acad
 import productos
 import server

@@ -1,6 +1,6 @@
 """Acceso de SOLO LECTURA a AutoCAD, con limite de tiempo.
 
-Cada llamada COM corre en un proceso hijo (_probe_*.py). Si AutoCAD no responde dentro del limite,
+Cada llamada COM corre en un proceso hijo (sondas/sonda_*.py). Si AutoCAD no responde dentro del limite,
 el hijo se termina y se devuelve un error claro; el servidor nunca se bloquea.
 Dos limites: `timeout_s` (AutoCAD responde, 10 s) y `timeout_lectura_s` (lecturas largas, p. ej. recorrer bloques).
 """
@@ -10,17 +10,17 @@ import sys
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
-PROBE_ESTADO = AQUI / "_probe_estado.py"
-PROBE_BLOQUES = AQUI / "_probe_bloques.py"
-PROBE_ESCRIBIR = AQUI / "_probe_escribir.py"
-PROBE_VISTA = AQUI / "_probe_vista.py"
-PROBE_SIMBOLOS = AQUI / "_probe_simbolos.py"
-PROBE_SVG = AQUI / "_probe_svg.py"
-PROBE_TARJETAS = AQUI / "_probe_tarjetas.py"
-PROBE_PLANO = AQUI / "_probe_plano.py"
-PROBE_ZONAS = AQUI / "_probe_zonas.py"
-PROBE_PATRONES = AQUI / "_probe_patrones.py"
-PROBE_INTENCIONES = AQUI / "_probe_intenciones.py"
+PROBE_ESTADO = AQUI / "sondas" / "sonda_estado.py"
+PROBE_BLOQUES = AQUI / "sondas" / "sonda_bloques.py"
+PROBE_ESCRIBIR = AQUI / "sondas" / "sonda_escribir.py"
+PROBE_VISTA = AQUI / "sondas" / "sonda_vista.py"
+PROBE_SIMBOLOS = AQUI / "sondas" / "sonda_simbolos.py"
+PROBE_SVG = AQUI / "sondas" / "sonda_svg.py"
+PROBE_TARJETAS = AQUI / "sondas" / "sonda_tarjetas.py"
+PROBE_PLANO = AQUI / "sondas" / "sonda_plano.py"
+PROBE_ZONAS = AQUI / "sondas" / "sonda_zonas.py"
+PROBE_PATRONES = AQUI / "sondas" / "sonda_patrones.py"
+PROBE_INTENCIONES = AQUI / "sondas" / "sonda_intenciones.py"
 
 
 def _correr(script: Path, timeout_s: float, argumentos=None, mensaje_timeout: str | None = None) -> dict:

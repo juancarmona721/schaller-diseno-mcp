@@ -16,8 +16,8 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _probe_simbolos as sim  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent / "sondas"))
+import sonda_simbolos as sim  # noqa: E402
 
 BUSY = (-2147418111, -2147417846)
 CELDA_W, CELDA_H, COLS, TAM_VISTA = 1100.0, 800.0, 6, 350.0
@@ -241,7 +241,7 @@ def main():
     except Exception:
         pass
     # --- 2) fichas (el mismo formato de las tarjetas de producto), con el simbolo real dentro ---
-    import _probe_tarjetas as tarj
+    import sonda_tarjetas as tarj
     tarj.MAX_ESCALA_SIMBOLO = 1e9   # los simbolos vienen en unidades distintas: que la ficha los ajuste al recuadro
     presentes = [f for f in filas if f["bloque"] in medidas or (continuar and existe_r(destino.Blocks, f["bloque"]))]
     resultado["copiados"] = resultado["copiados"] or len(presentes)

@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-import _probe_plano as pp
+import sonda_plano as pp
 import server
 
 

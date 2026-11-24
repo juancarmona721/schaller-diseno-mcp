@@ -1,79 +1,111 @@
-# Script de instalacion de 1 linea para el equipo de Schaller
+# Instalador de Schaller MCP Diseno para Claude Desktop (Windows PowerShell 5.1 o superior).
+# Uso desde una carpeta con el proyecto:   powershell -ExecutionPolicy Bypass -File instalar.ps1
+# Uso en una linea:                         irm <url>/instalar.ps1 | iex
+# Variables opcionales (entorno): SCHALLER_DIR (destino), SCHALLER_REPO (url git), SCHALLER_CLAUDE_CONFIG (json de Claude),
+# SCHALLER_SIN_VERIFICAR=1 (omite la prueba final).
 $ErrorActionPreference = "Stop"
 
+function Paso($t) { Write-Host "-> $t" -ForegroundColor Yellow }
+function Fallo($t) { Write-Host ""; Write-Host "ERROR: $t" -ForegroundColor Red; throw $t }
+
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "  Instalador Automatico de Schaller MCP Diseno" -ForegroundColor Cyan
+Write-Host "  Instalador de Schaller MCP Diseno" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
-# 1. Determinar directorio de instalacion
-$InstallDir = "$env:USERPROFILE\.schaller-diseno"
-Write-Host "-> Directorio destino: $InstallDir" -ForegroundColor Yellow
+$InstallDir = if ($env:SCHALLER_DIR) { $env:SCHALLER_DIR } else { Join-Path $env:USERPROFILE ".schaller-diseno" }
+$Repo = if ($env:SCHALLER_REPO) { $env:SCHALLER_REPO } else { "https://github.com/juancarmona721/schaller-diseno-mcp.git" }
+Paso "Carpeta de instalacion: $InstallDir"
 
-# 2. Obtener los archivos (si corre desde web via irm, clona el repo)
-$CurrentDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-if ($CurrentDir -and (Test-Path "$CurrentDir\server.py")) {
-    if (-not (Test-Path $InstallDir)) {
-        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-    }
-    Copy-Item "$CurrentDir\*.py" "$InstallDir\" -Force
-    Copy-Item "$CurrentDir\requirements.txt" "$InstallDir\" -Force
-    Copy-Item "$CurrentDir\config.toml" "$InstallDir\" -Force
-} else {
-    if (Test-Path "$InstallDir\.git") {
-        Write-Host "-> Actualizando repositorio existente..." -ForegroundColor Yellow
-        git -C "$InstallDir" pull
-    } else {
-        Write-Host "-> Descargando Schaller MCP Diseno desde GitHub..." -ForegroundColor Yellow
-        git clone https://github.com/juancarmona721/schaller-diseno-mcp.git "$InstallDir"
-    }
-}
-
-# 3. Crear entorno virtual
-Write-Host "-> Configurando entorno virtual Python..." -ForegroundColor Yellow
-$VenvPython = "$InstallDir\.venv\Scripts\python.exe"
-if (-not (Test-Path $VenvPython)) {
-    python -m venv "$InstallDir\.venv"
-}
-
-# 4. Instalar librerias
-Write-Host "-> Instalando dependencias de AutoCAD y MCP..." -ForegroundColor Yellow
-& "$VenvPython" -m pip install -q -r "$InstallDir\requirements.txt"
-
-# 5. Configurar Claude Desktop automaticamente
-$ClaudeConfigDir = "$env:APPDATA\Claude"
-$ClaudeConfigFile = "$ClaudeConfigDir\claude_desktop_config.json"
-
-if (-not (Test-Path $ClaudeConfigDir)) {
-    New-Item -ItemType Directory -Path $ClaudeConfigDir -Force | Out-Null
-}
-
-$ConfigJson = @{ mcpServers = @{} }
-if (Test-Path $ClaudeConfigFile) {
-    try {
-        $RawContent = Get-Content $ClaudeConfigFile -Raw
-        if ($RawContent.Trim()) {
-            $ConfigJson = $RawContent | ConvertFrom-Json -AsHashtable
-            if (-not $ConfigJson.ContainsKey("mcpServers")) {
-                $ConfigJson["mcpServers"] = @{}
+# 1. Python 3.11+ -------------------------------------------------------------
+function Buscar-Python {
+    $candidatos = @(@("py", "-3.12"), @("py", "-3.11"), @("py", "-3"), @("python"))
+    foreach ($c in $candidatos) {
+        try {
+            $exe = $c[0]; $args2 = @()
+            if ($c.Count -gt 1) { $args2 = $c[1..($c.Count - 1)] }
+            $v = & $exe @args2 -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $v) {
+                $p = $v.Trim().Split(".")
+                if ([int]$p[0] -gt 3 -or ([int]$p[0] -eq 3 -and [int]$p[1] -ge 11)) { return ,@($exe) + $args2 }
             }
-        }
+        } catch {}
+    }
+    return $null
+}
+$Py = Buscar-Python
+if (-not $Py) {
+    Paso "Python 3.11+ no encontrado. Intentando instalarlo con winget..."
+    try {
+        winget install -e --id Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements | Out-Null
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     } catch {}
+    $Py = Buscar-Python
+}
+if (-not $Py) { Fallo "Falta Python 3.11 o superior. Instalalo desde python.org (marca 'Add Python to PATH') y vuelve a ejecutar este instalador." }
+
+# 2. Obtener los archivos --------------------------------------------------------
+$Origen = $env:SCHALLER_ORIGEN
+if (-not $Origen -and $PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "server.py"))) { $Origen = $PSScriptRoot }
+
+if ($Origen) {
+    Paso "Copiando desde $Origen"
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    if ((Resolve-Path $Origen).Path -ne (Resolve-Path $InstallDir).Path) {
+        robocopy $Origen $InstallDir /E /NFL /NDL /NJH /NJS /NP `
+            /XD .venv .git .claude .pytest_cache __pycache__ tests scratch_agente respaldo_antes_de_limpiar fichas `
+            /XF *.dwg *.bak *.log *.xlsx zonas_activas.json | Out-Null
+        if ($LASTEXITCODE -ge 8) { Fallo "No se pudieron copiar los archivos (robocopy $LASTEXITCODE)." }
+    }
+} elseif (Test-Path (Join-Path $InstallDir ".git")) {
+    Paso "Actualizando instalacion existente..."
+    git -C "$InstallDir" pull
+    if ($LASTEXITCODE -ne 0) { Fallo "git pull fallo. Revisa tu acceso al repositorio." }
+} else {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fallo "Falta git. Instalalo (winget install Git.Git) o pide la carpeta del proyecto y ejecuta instalar.ps1 desde ella." }
+    Paso "Descargando el proyecto..."
+    git clone $Repo "$InstallDir"
+    if ($LASTEXITCODE -ne 0) { Fallo "No se pudo descargar el repositorio. Verifica tu acceso o ejecuta instalar.ps1 desde la carpeta del proyecto." }
+}
+if (-not (Test-Path (Join-Path $InstallDir "server.py")) -or -not (Test-Path (Join-Path $InstallDir "sondas"))) {
+    Fallo "La instalacion esta incompleta (faltan server.py o la carpeta sondas)."
 }
 
-$ConfigJson["mcpServers"]["schaller-diseno"] = @{
-    command = $VenvPython
-    args = @("$InstallDir\server.py")
+# 3. Entorno virtual y dependencias ----------------------------------------------
+$VenvPython = Join-Path $InstallDir ".venv\Scripts\python.exe"
+if (-not (Test-Path $VenvPython)) {
+    Paso "Creando entorno virtual..."
+    $exe = $Py[0]; $a = @(); if ($Py.Count -gt 1) { $a = $Py[1..($Py.Count - 1)] }
+    & $exe @a -m venv (Join-Path $InstallDir ".venv")
+    if ($LASTEXITCODE -ne 0) { Fallo "No se pudo crear el entorno virtual." }
+}
+Paso "Instalando dependencias (puede tardar un minuto)..."
+& $VenvPython -m pip install -q --disable-pip-version-check -r (Join-Path $InstallDir "requirements.txt")
+if ($LASTEXITCODE -ne 0) { Fallo "Fallo la instalacion de dependencias. Revisa tu conexion a internet." }
+
+# 4. Verificar que el servidor arranca ----------------------------------------------
+if ($env:SCHALLER_SIN_VERIFICAR -ne "1") {
+    Paso "Verificando el servidor..."
+    Push-Location $InstallDir
+    try {
+        $r = & $VenvPython -c "import server; print(len(server.mcp._tool_manager.list_tools()))"
+        if ($LASTEXITCODE -ne 0) { Fallo "El servidor no arranca. Ejecuta: $VenvPython -c 'import server' para ver el detalle." }
+        Write-Host "   Servidor OK ($r herramientas)." -ForegroundColor Green
+    } finally { Pop-Location }
 }
 
-$ConfigJson | ConvertTo-Json -Depth 10 | Set-Content $ClaudeConfigFile -Encoding UTF8
+# 5. Registrar en Claude Desktop (conserva lo que ya tengas) ---------------------------
+Paso "Registrando en Claude Desktop..."
+$reg = Join-Path $InstallDir "registrar_claude.py"
+$argsReg = @($reg, $VenvPython, (Join-Path $InstallDir "server.py"))
+if ($env:SCHALLER_CLAUDE_CONFIG) { $argsReg += @("--config", $env:SCHALLER_CLAUDE_CONFIG) }
+& $VenvPython @argsReg
+if ($LASTEXITCODE -ne 0) { Fallo "No se pudo actualizar la configuracion de Claude Desktop (ver mensaje arriba). Tu archivo original no se modifico." }
 
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "  LISTO! SCHALLER MCP DISENO HA SIDO CONFIGURADO" -ForegroundColor Green
+Write-Host "  LISTO. Schaller MCP Diseno instalado." -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "Tu Claude Desktop ya tiene acceso directo al servidor." -ForegroundColor Green
-Write-Host "Instrucciones de uso:" -ForegroundColor Cyan
-Write-Host "1. Abre AutoCAD y ten abierto el archivo 'bloques_schaller.dwg'." -ForegroundColor White
-Write-Host "2. Abre el plano arquitectonico donde vas a trabajar." -ForegroundColor White
-Write-Host "3. Abre Claude Desktop o Claude Code y empieza a disenar." -ForegroundColor White
+Write-Host "1. CIERRA Claude Desktop por completo (icono de la bandeja > Quit) y vuelve a abrirlo." -ForegroundColor White
+Write-Host "2. Ve a Settings > Developer: veras 'schaller-diseno' con su interruptor." -ForegroundColor White
+Write-Host "3. Abre AutoCAD con 'bloques_schaller.dwg' y el plano donde vas a trabajar." -ForegroundColor White
 Write-Host "==========================================================" -ForegroundColor Cyan

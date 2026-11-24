@@ -1,4 +1,4 @@
-import _probe_vista as pv
+import sonda_vista as pv
 import acad
 import server
 

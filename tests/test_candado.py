@@ -1,8 +1,8 @@
 """Candado de planos grandes + importar la biblioteca completa + insertar_bloques."""
 import math
 
-import _probe_escribir as pe
-import _probe_simbolos as ps
+import sonda_escribir as pe
+import sonda_simbolos as ps
 import server
 from test_fase3 import Doc as DocEsc, MK
 from test_simbolos import Bloque, Doc as DocSim, Ent, MKOBJ

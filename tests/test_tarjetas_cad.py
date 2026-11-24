@@ -1,6 +1,6 @@
 import pytest
 
-import _probe_tarjetas as pt
+import sonda_tarjetas as pt
 import fichas
 import productos as P
 import server

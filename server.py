@@ -730,8 +730,16 @@ def _elegir(prods, referencias=None, filas_excel=None, sistemas=None):
     return elegidos, problemas
 
 
+def _ruta_cfg(valor) -> str | None:
+    """Rutas de config.toml: las relativas se resuelven contra la carpeta del servidor (sirve en cualquier PC)."""
+    if not valor:
+        return None
+    r = Path(valor)
+    return str(r if r.is_absolute() else AQUI / r)
+
+
 def _carpeta_fichas():
-    c = CFG.get("fichas", {}).get("carpeta")
+    c = _ruta_cfg(CFG.get("fichas", {}).get("carpeta"))
     return Path(c) if c else None
 
 
@@ -810,7 +818,7 @@ def generar_tarjetas(sistemas: list[str] | None = None, referencias: list[str] |
             arch = carpeta / "simbolos" / f"{fichas.slug(b)}.svg"
             if arch.is_file():
                 svgs[b] = arch.read_text(encoding="utf-8")
-    por_bloque = fichas.cantidades_desde_csv(CFG.get("fichas", {}).get("extraccion"))
+    por_bloque = fichas.cantidades_desde_csv(_ruta_cfg(CFG.get("fichas", {}).get("extraccion")))
     cant, compartidos = fichas.calcular_cantidades(prods, elegidos, por_bloque)
     accs = _accesorios()
     lista = [_ficha_de(p, accs) for p in elegidos]
@@ -852,7 +860,7 @@ def crear_tarjetas_cad(destino_contiene: str | None = None, sistemas: list[str] 
         return {"ok": False, "error": "items_con_problemas", "detalle": "No se dibujo nada: corrige estos items.", "problemas": problemas}
     if not elegidos:
         return {"ok": False, "error": "sin_productos", "detalle": "Ningun producto cumple el filtro."}
-    por_bloque = fichas.cantidades_desde_csv(CFG.get("fichas", {}).get("extraccion"))
+    por_bloque = fichas.cantidades_desde_csv(_ruta_cfg(CFG.get("fichas", {}).get("extraccion")))
     cant, compartidos = fichas.calcular_cantidades(prods, elegidos, por_bloque)
     accs = _accesorios()
     orden = list(dict.fromkeys(p.get(productos.SISTEMA) for p in elegidos))      # sistemas en el orden de la hoja
@@ -907,7 +915,7 @@ def generar_fichas(referencias: list[str] | None = None, filas_excel: list[int] 
     elegidos, problemas = _elegir(prods, referencias, filas_excel)
     if problemas:
         return {"ok": False, "error": "items_con_problemas", "detalle": "No se genero nada: corrige estos items.", "problemas": problemas}
-    carpeta = CFG.get("fichas", {}).get("carpeta")
+    carpeta = _ruta_cfg(CFG.get("fichas", {}).get("carpeta"))
     if not carpeta:
         return {"ok": False, "error": "sin_carpeta", "detalle": "Falta [fichas].carpeta en config.toml."}
     accs = _accesorios()

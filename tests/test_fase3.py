@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-import _probe_escribir as pe
+import sonda_escribir as pe
 import productos
 import server
 

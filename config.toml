@@ -36,9 +36,10 @@ max_simbolos = 60
 
 [fichas]
 # Carpeta donde se escriben las fichas (HTML). Solo se escribe aqui; nunca fuera de esta carpeta.
-carpeta = 'C:\Users\JuanEstebanCarmona\Documents\MCP Diseño\fichas'
+# Ruta relativa = dentro de la carpeta de instalacion (funciona en cualquier PC).
+carpeta = "fichas"
 # Extraccion del plano de diseno (para la CANTIDAD de cada tarjeta: copias del bloque en el plano). Opcional.
-extraccion = 'C:\Users\JuanEstebanCarmona\extraccion_CADdiseno\productos_posiciones.csv'
+# extraccion = 'RUTA_AL_CSV_productos_posiciones'
 
 [productos]
 hoja_accesorios = "Drivers y accesorios"

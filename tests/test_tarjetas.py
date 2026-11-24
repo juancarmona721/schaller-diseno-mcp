@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-import _probe_svg as sv
+import sonda_svg as sv
 import fichas
 import productos as P
 import server

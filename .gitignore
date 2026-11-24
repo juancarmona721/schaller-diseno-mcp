@@ -10,7 +10,8 @@ __pycache__/
 *$py.class
 *.pytest_cache/
 
-# Archivos temporales y de pruebas del agente
+# Archivos temporales y de pruebas del agente (las sondas de runtime viven en sondas/ y SI se versionan)
+scratch_agente/
 _probe_*.py
 zonas_activas.json
 *.tmp
