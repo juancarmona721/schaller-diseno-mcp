@@ -95,6 +95,67 @@ Limitacion conocida: el diseno multi-zona del 24/11 se ejecuto con coordenadas f
 las intenciones del servidor. Ver seccion 6.
 
 --------------------------------------------------------------------------------
+4B. LECCIONES DE LA SESION DE ANTIGRAVITY (24/11/2026) - RECUPERADAS DEL CHAT
+--------------------------------------------------------------------------------
+Esta informacion NO estaba en el historial: se recupero de ~/.gemini/antigravity (transcript de la sesion).
+Son las correcciones del usuario y las soluciones de fondo propuestas. IMPORTANTE: Antigravity PROPUSO trazado de rayos y
+orientacion local, pero NUNCA los implemento: sus scripts finales siguieron con coordenadas fijas (ej. muro Y=1463.63, luego 1463.93).
+
+FALLOS REPORTADOS POR EL USUARIO Y SU CAUSA
+  1. Cama Piso 1 (Gruppo-203): se asumio cabecera al Norte; la real esta al OESTE (almohadas hacia el Este).
+     Tira atravesando almohada/mesa de noche y proyectores corridos al vestier.      -> ignorar la ORIENTACION del anfitrion.
+  2. Cocina: Durastrip "en la mitad de la nada" (linea de 5 m en una Y general); el objetivo es la POCETA del lavaplatos
+     (modulo "dtjrtj (2D)": rectangulo interior ~0.90 m con circulos de griferia).  -> falta anclar a SUB-ELEMENTOS del mueble.
+  3. Habitacion 2: parlantes de pared debian ir en el muro FRENTE a la cama; cayeron en la sala del otro piso (mesa ATA11).
+     La distancia fija hacia el sur atraveso el muro del dormitorio.                 -> falta RAYO hasta el primer muro.
+  4. Parlantes de pared: direccion incorrecta y "en la mitad de la pared" -> van sobre la CARA INTERIOR del muro (Y=1463.93),
+     con la rejilla hacia la cama (rotacion pi apuntando al norte) y la caja hacia dentro del muro.
+  5. Parlantes de banos diminutos: Ci160CRDS_KEF viene en metros (0.19 m); con escala 0.001 queda de 0.19 mm.
+  6. Durastrip NO es una linea continua: es el BLOQUE oficial entrecortado (EWC, ancho 0.04). La de la cocina es IP68 (azul);
+     no cambiar su color. Las de cama tambien IP68.
+  7. Lamparas duplicadas en Habitacion 2 -> la colocacion debe ser IDEMPOTENTE.
+  8. Rotulos: pequenos y discretos al lado; NO repetir los de bloques que ya traen su nombre; SI poner la referencia exacta
+     (no el nombre comercial) a los que no la traen. No cambiar referencias por iniciativa propia.
+  9. Luces de la Habitacion 2: cerca de la cama pero con un poco de distancia.
+
+SOLUCIONES DE FONDO (disenadas; ver seccion 6 y motor_ubicacion.py)
+  A. Coordenadas LOCALES por orientacion del anfitrion: leer su cabecera/borde de referencia y calcular todo con una matriz de
+     rotacion  [X,Y] = [Cx,Cy] + R(theta) * [u,v]. Si la cama gira 90 grados, todo gira con ella.
+  B. Anclaje a SUB-ENTIDADES: escanear la definicion del bloque (poceta, griferia) y acotar la tira a ese elemento.
+  C. TRAZADO DE RAYOS a muros: desde el anfitrion (pies de la cama) hacia adelante hasta la primera polilinea de la capa de
+     muros (H-MUROS, _MUROS); el parlante se adhiere solo a la cara interior de ESE muro. Sin salto a otro ambiente.
+  D. Alternativa de un clic: ubicar_en_seleccion con el muro/mueble tocado en AutoCAD.
+  Limite real: en el plano V5 de prueba casi no hay muros dibujados (solo ~10 entidades H-MUROS); la cabecera norte de la
+  Hab. 2 y la Hab. 1 no tienen muro. Sin muros, el motor debe decirlo y pedir la cabecera, nunca adivinar.
+
+IMPLEMENTADO (24/11/2026, sesion Claude): herramientas del MCP en lugar de scripts con coordenadas
+  - motor_ubicacion.py (puro, 30 tests) + sondas/sonda_diseno.py + tools: catalogo_ubicacion, listar_anfitriones, ubicar_en_anfitrion.
+  - Recetas: cama (tira + 6 proyectores, cabecera N/S/E/O o deducida por muros), pared_frente (rayo al primer muro, parlantes
+    mirando al anfitrion), centro, mesa_4x, tira_borde, linea. Orientacion local por borde de referencia (matriz de marco u,v).
+  - Validado contra el diseno aprobado: reproduce los 6 CCTEvo de la Hab. 2 (<0.13 m), la tira de ambas camas y los 2 Ci200QS
+    de pared (x=4246.80/4248.10, y=1463.93, rot pi) calculados por rayo; sobre el plano real los reconoce como ya colocados.
+  - Idempotente (mismo bloque a <0.30 m = ya colocado), todo o nada, candado de planos grandes, ensayo por defecto.
+  - NO resuelto aun: anclaje a sub-elementos (poceta) -> use receta 'centro'/'tira_borde' con el anfitrion o du/dv; deteccion
+    automatica de la cabecera sin muros (el plano V5 casi no tiene muros: pide la cabecera en vez de adivinar).
+
+LECCIONES TECNICAS NUEVAS (descubiertas probando en vivo)
+  - La seleccion por VENTANA de AutoCAD (SelectionSet.Select modos 0/1/7) solo ve lo que esta en la vista actual: devuelve 0
+    si el objeto esta fuera de pantalla. Usar seleccion global (modo 5) con filtro nativo y recortar por distancia en Python.
+  - Las definiciones de bloque NO tienen unidades uniformes: bloques_schaller.dwg esta en mm; en V5 algunos fueron convertidos a
+    metros a mano (Ci160, Durastrip) y otros siguen en mm (CCTEvo, Ci200QS). Una escala fija por nombre falla segun el plano.
+    Solucion: se inserta a 1, se MIDE la instancia y se compara con el tamano fisico esperado (TAM_M), eligiendo entre 1, 0.001,
+    0.01, 0.0254... segun INSUNITS del plano. Medir la definicion no sirve (algunas entidades no devuelven caja).
+  - SIMBIOSI tiene su geometria a ~(2630, 1567) del origen y mide 0.55 (unidades): a 0.001 es invisible y ademas cae a 3 m del
+    punto. Se inserta a escala 1 y se centra su geometria en el punto (ancla 'bbox').  SIMBIOSI NO esta en bloques_schaller.dwg
+    (solo en V5): hay que agregarla a la biblioteca para que otros planos puedan importarla.
+  - CopyObjects entre dibujos: crear el bloque en el destino y copiarle las ENTIDADES de la definicion (no la definicion).
+  - AutoCAD responde "llamada rechazada" si esta ocupado: las sondas deben reintentar.
+  - El dibujo en blanco nuevo usa milimetros: para probar en metros fijar INSUNITS=6.
+  - ubicar_por_intencion (sonda_intenciones) escribe SIN candado de confirmacion ni control de duplicados: usar ubicar_en_anfitrion.
+
+PROXIMO OBJETIVO DECLARADO: "que todo quede bien ubicado a la primera". Disenos complejos (circuitos, keypads) = MCP Ingenieria.
+
+--------------------------------------------------------------------------------
 5. DELIMITACION MCP DISENO / MCP INGENIERIA
 --------------------------------------------------------------------------------
 DISENO (fase actual): identificar espacios; distribuir luminarias, tiras LED y parlantes; alinear y centrar con el mobiliario;

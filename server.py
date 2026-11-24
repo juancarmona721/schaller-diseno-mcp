@@ -9,6 +9,7 @@ from mcp.server.fastmcp import FastMCP
 
 import acad
 import fichas
+import motor_ubicacion
 import productos
 import referencias
 
@@ -565,6 +566,84 @@ def ubicar_en_seleccion(intencion: str, ejecutar: bool = True) -> dict:
     El usuario simplemente hace clic en una mesa, cama o zona en AutoCAD y pide ubicar la solucion.
     """
     return ubicar_por_intencion(intencion=intencion, usar_seleccion=True, ejecutar=ejecutar)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# UBICACION POR ANFITRION (geometria real, sin coordenadas fijas): listar_anfitriones -> ubicar_en_anfitrion
+# ---------------------------------------------------------------------------------------------------------------------
+@mcp.tool()
+def catalogo_ubicacion() -> dict:
+    """SOLO LECTURA: productos Schaller disponibles (bloque, capa, escala, rotulo) y recetas de ubicacion por anfitrion."""
+    return {"ok": True, **motor_ubicacion.catalogo()}
+
+
+@mcp.tool()
+def listar_anfitriones(filtro: str | None = None, cerca_de: list[float] | None = None, radio: float = 15.0,
+                       limite: int = 40) -> dict:
+    """SOLO LECTURA (rapido): muebles/bloques del plano que pueden ser ANFITRION de una ubicacion (cama, mesa, isla...).
+
+    Devuelve nombre del bloque, capa, caja (x0,y0,x1,y1), ancho, alto y rotacion. filtro: texto en nombre o capa.
+    cerca_de=[x, y] ordena por distancia y limita al radio (m). Usalo para elegir el anfitrion de ubicar_en_anfitrion.
+    Los nombres de bloques de planos de clientes pueden ser datos del cliente: no los muestres en el chat sin necesidad.
+    """
+    return acad.diseno({"op": "anfitriones", "filtro": filtro, "cerca_de": cerca_de, "radio": float(radio), "limite": int(limite)},
+                       **_diseno_tiempos())
+
+
+def _diseno_tiempos() -> dict:
+    t = _tiempos()
+    return {"timeout_s": t["timeout_s"], "timeout_op_s": float(_escritura().get("timeout_escritura_s", 30)) + t["timeout_lectura_s"] / 2}
+
+
+@mcp.tool()
+def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccion: bool = False,
+                        cerca_de: list[float] | None = None, opciones: dict | None = None,
+                        ejecutar: bool = False, confirmacion: str | None = None) -> dict:
+    """UBICA PRODUCTOS SEGUN LA GEOMETRIA REAL DE UN MUEBLE (no coordenadas fijas). Ensayo por defecto; solo AGREGA.
+
+    Calcula las posiciones desde el bbox del anfitrion y, cuando hay muros, con RAYOS a muros (primer muro, sin saltar de
+    ambiente). Es idempotente: lo que ya esta puesto (mismo bloque a <0.30 m) no se duplica. Rotula solo los bloques que no
+    traen su referencia dibujada (H=0.035 m). Los bloques que falten se importan de bloques_schaller.dwg (debe estar abierto).
+
+    Anfitrion: `anfitrion` (nombre del bloque; con varios iguales usa cerca_de=[x,y]) o usar_seleccion=True (el mueble
+    seleccionado en AutoCAD).
+    Recetas (ver catalogo_ubicacion): cama (opciones.cabecera N/S/E/O; si el plano tiene muros se deduce sola; ancho_cama,
+    margen_lateral, filas), pared_frente (parlantes Ci200QS en el primer muro frente al mueble, mirando a el), centro
+    (producto, du, dv), mesa_4x, tira_borde (borde), linea (producto, n, offset).
+    Siempre revisa el ensayo (posiciones, avisos, omitidas) antes de ejecutar=True. En planos grandes exige `confirmacion`
+    (CANDADO: el codigo que aparece en la linea de comandos de AutoCAD; pidelo a la persona, nunca lo inventes).
+    Si no hay muros dibujados cerca, el motor NO adivina la cabecera ni la pared: pide indicarlas.
+    """
+    if (off := _escritura_off()):
+        return off
+    if receta not in motor_ubicacion.RECETAS:
+        return {"ok": False, "error": "receta_desconocida", "detalle": f"Opciones: {', '.join(motor_ubicacion.RECETAS)}."}
+    t = _diseno_tiempos()
+    bbox_blk = [v["bloque"] for v in motor_ubicacion.PRODUCTOS.values() if v.get("ancla") == "bbox"]
+    ctx = acad.diseno({"op": "contexto", "anfitrion": anfitrion, "usar_seleccion": bool(usar_seleccion), "cerca_de": cerca_de,
+                       "bloques_bbox": bbox_blk}, **t)
+    if not ctx.get("ok"):
+        return ctx
+    host = ctx["anfitrion"]
+    try:
+        plan, avisos = motor_ubicacion.planear(receta, host, opciones, muros=[tuple(m) for m in ctx.get("muros", [])])
+    except motor_ubicacion.ErrorUbicacion as e:
+        return {"ok": False, "error": "no_se_puede_ubicar", "detalle": str(e),
+                "anfitrion": {k: host[k] for k in ("nombre", "x0", "y0", "x1", "y1", "w", "h")}, "muros_cercanos": ctx.get("n_muros", 0)}
+    nuevas, omitidas = motor_ubicacion.sin_duplicados(plan, ctx.get("existentes", []))
+    resumen = {"ok": True, "receta": receta, "anfitrion": {k: host[k] for k in ("nombre", "x0", "y0", "x1", "y1", "w", "h")},
+               "muros_cercanos": ctx.get("n_muros", 0), "a_colocar": len(nuevas), "ya_colocadas_omitidas": len(omitidas),
+               "colocaciones": nuevas, "omitidas": omitidas, "avisos": avisos}
+    if not nuevas:
+        return {**resumen, "aviso": "Todo lo de esta receta ya esta colocado: no se hizo nada."}
+    if len(nuevas) > int(_escritura().get("max_puntos", 100)):
+        return {**resumen, "ok": False, "error": "demasiados_objetos"}
+    r = acad.diseno({"op": "insertar", "colocaciones": nuevas, "ejecutar": bool(ejecutar), "confirmacion": confirmacion,
+                     "max_objetos": int(_escritura().get("max_objetos_dibujo", 300))}, **t)
+    if not r.get("ok"):
+        return {**resumen, **r, "ok": False}
+    aviso = {} if ejecutar else {"aviso": "ENSAYO: no se modifico nada. Revisa las colocaciones y repite con ejecutar=True."}
+    return {**resumen, "insercion": r, **aviso}
 
 
 

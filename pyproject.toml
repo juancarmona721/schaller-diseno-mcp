@@ -36,7 +36,8 @@ py-modules = [
     "extraer_textos",
     "extraer_todos",
     "leer_leyendas",
-    "registrar_claude"
+    "registrar_claude",
+    "motor_ubicacion"
 ]
 
 packages = ["sondas"]

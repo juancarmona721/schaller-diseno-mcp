@@ -21,6 +21,13 @@ Desarrollo: `python -m venv .venv`, `.venv\Scripts\python.exe -m pip install -r 
 Estructura: `server.py` y `acad.py` (servidor y puente COM), `sondas/` (scripts COM que ejecuta `acad.py`, se versionan),
 `scratch_agente/` (pruebas de un solo uso, no se versionan). Ver `HISTORIAL_CAMBIOS.txt`.
 
+## Ubicacion por anfitrion (recomendada)
+Flujo: `listar_anfitriones` (o seleccionar el mueble en AutoCAD) -> `ubicar_en_anfitrion(receta, ...)` en **ensayo** -> revisar
+posiciones y avisos -> repetir con `ejecutar=True`. Calcula desde la geometria real del mueble y, si hay muros, con rayos al
+primer muro. Es idempotente, rotula solo lo que no trae su referencia, calibra la escala midiendo el bloque y se detiene si
+el plano no trae muros en vez de adivinar. Recetas: `cama`, `pared_frente`, `centro`, `mesa_4x`, `tira_borde`, `linea`
+(`catalogo_ubicacion` las lista). Requiere `bloques_schaller.dwg` abierto para importar los bloques que falten.
+
 ## Herramientas
 | Herramienta | Fase | Que hace |
 |---|---|---|

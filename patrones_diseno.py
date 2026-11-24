@@ -124,7 +124,8 @@ ESCALAS_BLOQUES_SCHALLER = {
     "CCTEvo Architectural_160_Targetti": 0.001,
     "FORTYEIGHT Label_7_Targetti": 0.001,
     "Ci200QS Pared_KEF": 0.001,
-    "SIMBIOSI": 0.001,
+    # SIMBIOSI: su geometria mide ~0.54 unidades de bloque (un pendiente de ~54 cm): a 0.001 queda de 0.5 mm, invisible.
+    "SIMBIOSI": 1.0,
     # Bloques modelados en metros (requieren escala 1.0 en planos en metros):
     "Ci160CRDS_KEF": 1.0,
     "CI200QR_": 1.0,

@@ -21,6 +21,7 @@ PROBE_PLANO = AQUI / "sondas" / "sonda_plano.py"
 PROBE_ZONAS = AQUI / "sondas" / "sonda_zonas.py"
 PROBE_PATRONES = AQUI / "sondas" / "sonda_patrones.py"
 PROBE_INTENCIONES = AQUI / "sondas" / "sonda_intenciones.py"
+PROBE_DISENO = AQUI / "sondas" / "sonda_diseno.py"
 
 
 def _correr(script: Path, timeout_s: float, argumentos=None, mensaje_timeout: str | None = None) -> dict:
@@ -164,3 +165,15 @@ def ubicar_por_intencion(args: dict, timeout_s: float = 10.0, timeout_escritura_
         return {"ok": False, "error": "sin_dibujo", "detalle": "AutoCAD esta abierto pero no hay ningun dibujo activo."}
     return _correr(PROBE_INTENCIONES, timeout_escritura_s, [json.dumps(args)])
 
+
+
+def diseno(args: dict, timeout_s: float = 10.0, timeout_op_s: float = 30.0) -> dict:
+    """Operaciones de diseno por anfitrion (leer contexto, listar anfitriones, insertar colocaciones)."""
+    previo = estado(timeout_s)
+    if not previo.get("ok"):
+        return previo
+    if not previo.get("dibujo_activo"):
+        return {"ok": False, "error": "sin_dibujo", "detalle": "AutoCAD esta abierto pero no hay ningun dibujo activo."}
+    return _correr(PROBE_DISENO, timeout_op_s, [json.dumps(args)],
+                   mensaje_timeout=(f"La operacion no termino en {timeout_op_s:g} s. Si era una insercion, NO se sabe si quedo a medias: "
+                                    "revisa el dibujo (Ctrl+Z deshace) y cierra cualquier dialogo abierto."))
