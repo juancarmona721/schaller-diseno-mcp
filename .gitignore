@@ -1,0 +1,30 @@
+# Entornos virtuales
+.venv/
+env/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pytest_cache/
+
+# Archivos temporales y de pruebas del agente
+_probe_*.py
+zonas_activas.json
+*.tmp
+*.log
+
+# Archivos de respaldo y salidas pesadas
+respaldo_antes_de_limpiar/
+fichas/
+*.dwg
+*.bak
+*.dxf
+*.xlsx
+
+# Configuraciones locales de IDEs
+.claude/
+.vscode/
+.idea/

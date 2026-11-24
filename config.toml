@@ -1,0 +1,47 @@
+# Configuracion de diseno-mcp. Para usar otro archivo: variable de entorno DISENO_MCP_CONFIG.
+
+[autocad]
+# Tiempo maximo (segundos) para que AutoCAD responda. Pasado ese tiempo se devuelve un error claro.
+timeout_s = 10
+# Tiempo maximo para lecturas largas (recorrer los bloques de un dibujo grande).
+timeout_lectura_s = 60
+
+[escritura]
+# Herramientas que SI modifican el dibujo (crear bloques, insertarlos). Solo AGREGAN; nunca borran ni cambian lo existente.
+# Por defecto cada una hace un ensayo (dice que haria); solo dibuja con ejecutar=true.
+habilitada = true
+# CANDADO de planos grandes: si el dibujo tiene mas objetos que esto, el ensayo funciona pero ESCRIBIR exige un codigo
+# de confirmacion que aparece en la linea de comandos de AutoCAD (lo lee la persona, no se muestra en el chat).
+max_objetos_dibujo = 300
+# Capa donde importar/insertar_bloques pone los bloques de la biblioteca en los planos.
+capa_bloques = "SCH_BLOQUES"
+# Capas de dibujar_espacios (plantas esquematicas): rectangulos de los espacios y sus nombres.
+capa_muros = "SCH_MUROS"
+capa_espacios = "SCH_ESPACIOS"
+# Capa de las flechas que indican hacia donde apunta un producto (dibujar_flechas).
+capa_apuntado = "SCH_APUNTADO"
+# Capa de los rotulos de texto (nombre del producto junto a su bloque).
+capa_etiquetas = "SCH_ETIQUETAS"
+# Todo lo insertado va en capas con este prefijo + el sistema (ej. DL-TEST-ILUMINACION).
+prefijo_capa = "DL-TEST-"
+max_puntos = 100
+# Tiempo maximo (s) de una escritura.
+timeout_escritura_s = 30
+
+[simbolos]
+# Importar simbolos (definiciones de bloque) de un plano a otro dibujo. Leer un plano grande es lento.
+timeout_importar_s = 300
+# Tope de bloques por llamada.
+max_simbolos = 60
+
+[fichas]
+# Carpeta donde se escriben las fichas (HTML). Solo se escribe aqui; nunca fuera de esta carpeta.
+carpeta = 'C:\Users\JuanEstebanCarmona\Documents\MCP Diseño\fichas'
+# Extraccion del plano de diseno (para la CANTIDAD de cada tarjeta: copias del bloque en el plano). Opcional.
+extraccion = 'C:\Users\JuanEstebanCarmona\extraccion_CADdiseno\productos_posiciones.csv'
+
+[productos]
+hoja_accesorios = "Drivers y accesorios"
+# Hoja de productos: por ahora NO apunta a ningun archivo (se hara despues). Para activarla, quita el # y pon la ruta.
+# ruta_hoja = 'C:\ruta\a\la\hoja_de_productos.xlsx'
+hoja = "Productos"
