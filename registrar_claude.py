@@ -14,17 +14,25 @@ NOMBRE = "schaller-diseno"
 
 
 def rutas_config() -> list[Path]:
-    """Configuraciones de Claude Desktop presentes: instalador normal y version de Microsoft Store (MSIX)."""
-    rutas = []
+    """Configuraciones donde ESCRIBIR para que Claude Desktop las lea.
+
+    - Instalacion clasica: %APPDATA%\\Claude (solo si esa carpeta ya existe).
+    - Version MSIX (la que instala claude.ai/download y la Store): la app lee SU carpeta virtualizada
+      Packages\\Claude_*\\LocalCache\\Roaming\\Claude, no %APPDATA%. Se escribe ahi AUNQUE aun no exista (se crea): una instalacion
+      recien hecha todavia no la ha creado, y escribir en %APPDATA% seria silencio total (la app no lo lee ni avisa).
+    """
+    cfg = "claude_desktop_config.json"
     appdata = os.environ.get("APPDATA")
-    if appdata:
-        rutas.append(Path(appdata) / "Claude" / "claude_desktop_config.json")
+    clasica = Path(appdata) / "Claude" / cfg if appdata else None
+    destinos = []
+    if clasica is not None and clasica.parent.exists():
+        destinos.append(clasica)
     local = os.environ.get("LOCALAPPDATA")
     if local:
-        for p in glob.glob(str(Path(local) / "Packages" / "Claude_*" / "LocalCache" / "Roaming" / "Claude")):
-            rutas.append(Path(p) / "claude_desktop_config.json")
-    existentes = [r for r in rutas if r.parent.exists()]
-    return existentes or rutas[:1]
+        for p in sorted(glob.glob(str(Path(local) / "Packages" / "Claude_*"))):
+            if os.path.isdir(p):
+                destinos.append(Path(p) / "LocalCache" / "Roaming" / "Claude" / cfg)
+    return destinos or ([clasica] if clasica is not None else [])
 
 
 def registrar(config: Path, python: str, server: str, nombre: str = NOMBRE) -> str:
