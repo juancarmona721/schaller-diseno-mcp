@@ -16,7 +16,7 @@ $InstallDir = if ($env:SCHALLER_DIR) { $env:SCHALLER_DIR } else { Join-Path $env
 $Repo = if ($env:SCHALLER_REPO) { $env:SCHALLER_REPO } else { "https://github.com/juancarmona721/schaller-diseno-mcp.git" }
 Paso "Carpeta de instalacion: $InstallDir"
 
-# 1. Python 3.11+ -------------------------------------------------------------
+# 1. Python 3.11 a 3.13 --------------------------------------------------------
 function Buscar-Python {
     $candidatos = @(@("py", "-3.12"), @("py", "-3.11"), @("py", "-3"), @("python"))
     foreach ($c in $candidatos) {
@@ -26,7 +26,8 @@ function Buscar-Python {
             $v = & $exe @args2 -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
             if ($LASTEXITCODE -eq 0 -and $v) {
                 $p = $v.Trim().Split(".")
-                if ([int]$p[0] -gt 3 -or ([int]$p[0] -eq 3 -and [int]$p[1] -ge 11)) { return ,@($exe) + $args2 }
+                # 3.11 a 3.13: es lo probado; una version mas nueva puede no tener ruedas (wheels) de pywin32/pydantic y fallar al instalar.
+                if ([int]$p[0] -eq 3 -and [int]$p[1] -ge 11 -and [int]$p[1] -le 13) { return ,@($exe) + $args2 }
             }
         } catch {}
     }
@@ -34,14 +35,14 @@ function Buscar-Python {
 }
 $Py = Buscar-Python
 if (-not $Py) {
-    Paso "Python 3.11+ no encontrado. Intentando instalarlo con winget..."
+    Paso "Python 3.11 a 3.13 no encontrado. Intentando instalar Python 3.12 con winget..."
     try {
         winget install -e --id Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements | Out-Null
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     } catch {}
     $Py = Buscar-Python
 }
-if (-not $Py) { Fallo "Falta Python 3.11 o superior. Instalalo desde python.org (marca 'Add Python to PATH') y vuelve a ejecutar este instalador." }
+if (-not $Py) { Fallo "Falta Python 3.11, 3.12 o 3.13 (las versiones mas nuevas aun no estan probadas). Instala Python 3.12 desde python.org (marca 'Add Python to PATH') y vuelve a ejecutar este instalador." }
 
 # 2. Obtener los archivos --------------------------------------------------------
 $Origen = $env:SCHALLER_ORIGEN
@@ -210,10 +211,11 @@ Write-Host "==========================================================" -Foregro
 if ($modoExtension) {
     Write-Host "1. En Claude Desktop pulsa 'Instalar' en la ventana de la extension. Si no se abrio sola, arrastra este archivo a la ventana de Claude:" -ForegroundColor White
     Write-Host "   $mcpb" -ForegroundColor White
-    Write-Host "2. Despues veras 'Schaller Diseno (AutoCAD)' en Settings > Extensions con su interruptor." -ForegroundColor White
+    Write-Host "2. Despues veras 'Schaller Diseno (AutoCAD)' en Configuracion > Aplicacion de escritorio > Extensiones, con su interruptor." -ForegroundColor White
 } else {
     Write-Host "1. CIERRA Claude Desktop por completo (icono de la bandeja > Quit) y vuelve a abrirlo." -ForegroundColor White
-    Write-Host "2. En Settings > Developer veras 'schaller-diseno' con su interruptor." -ForegroundColor White
+    Write-Host "2. En Claude: Configuracion > Aplicacion de escritorio > Extensiones, y abajo, en 'Servidores MCP locales', veras 'schaller-diseno'." -ForegroundColor White
+    Write-Host "   (En ingles: Settings > Desktop app > Extensions > Local MCP servers.) Prueba pidiendole: 'Revisa el estado de AutoCAD'." -ForegroundColor White
     Write-Host "   Si NO aparece, repite la instalacion en modo extension: `$env:SCHALLER_MODO='extension'  y vuelve a ejecutar este instalador." -ForegroundColor Yellow
 }
 if ($ready) { Write-Host "3. AutoCAD ya esta listo con la biblioteca: puedes empezar a pedirle cosas a Claude." -ForegroundColor White }

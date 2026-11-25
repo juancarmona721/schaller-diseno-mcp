@@ -1,80 +1,95 @@
 # Instalar el MCP de Diseño Schaller (guía para el equipo)
 
-Tiempo: unos 3 minutos. No necesitas saber programar.
+Tiempo: unos 5 minutos. No necesitas saber programar.
 
-## El comando (pégalo en **PowerShell**, no en CMD)
-Abre PowerShell (tecla Windows, escribe `PowerShell`, Enter) y pega estas dos líneas:
-```powershell
-irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 -OutFile $env:TEMP\schaller_instalar.ps1
-powershell -ExecutionPolicy Bypass -File $env:TEMP\schaller_instalar.ps1
-```
-Eso instala el MCP, lo conecta a Claude Desktop, comprueba AutoCAD, **busca `bloques_schaller_corregido.dwg` y lo abre** en AutoCAD, y termina con un diagnóstico (`[OK] ... todo listo`).
-Después cierra Claude Desktop por completo (bandeja, *Quit*) y ábrelo otra vez.
+## Antes de empezar: 4 cosas en tu PC
 
-> Usa la versión de dos líneas (descarga el instalador a un archivo): algunos PC con protección de seguridad bloquean la forma abreviada `irm ... | iex`.
-> Si en CMD sale *"irm no se reconoce"*, es que no estás en PowerShell.
-
-## Plan B: si Claude no muestra el MCP (modo extensión)
-Algunas versiones de Claude Desktop (sobre todo la de la Microsoft Store) no leen el archivo de configuración y no muestran nada, sin dar error. En ese caso instala el MCP como **extensión**, que no usa ese archivo:
-```powershell
-$env:SCHALLER_MODO = "extension"
-irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 -OutFile $env:TEMP\schaller_instalar.ps1
-powershell -ExecutionPolicy Bypass -File $env:TEMP\schaller_instalar.ps1
-```
-Se abrirá una ventana de Claude Desktop: pulsa **Instalar**. Si no se abre sola, arrastra el archivo `schaller-diseno.mcpb` (el instalador te muestra su carpeta) a la ventana de Claude.
-Después verás **Schaller Diseno (AutoCAD)** en **Settings → Extensions** con su interruptor.
-
-## Antes de empezar
-Necesitas en tu PC (Windows):
-- **AutoCAD completo** (no LT) y **Claude Desktop** instalados.
-- **Ojo con Claude Desktop:** tiene que ser la **aplicación** que se descarga en `https://claude.ai/download` (o de la Microsoft Store).
-  Una "app" de Claude creada desde Chrome o Edge (menú del navegador, *Instalar Claude como aplicación*) **se parece pero no sirve**: es solo la web, no admite MCP.
-  Cómo saber cuál tienes: clic derecho en el acceso directo de Claude → *Abrir ubicación del archivo*. Si abre una carpeta llamada **Aplicaciones de Chrome** (o Edge), es la web app y hay que instalar la aplicación real.
-  Otra pista: la aplicación real tiene arriba a la izquierda el menú **≡** (File, Edit...); la web app muestra los tres puntos del navegador.
-- El archivo **`bloques_schaller_corregido.dwg`** que te pasó Juan. Guárdalo en una carpeta fija (por ejemplo `Documentos\Schaller`) y no lo muevas.
-- Python 3.11 o superior: si no lo tienes, el instalador intenta instalarlo solo. Git **no** hace falta.
+1. **Windows 10 u 11** y **AutoCAD completo** (no LT) con licencia activa.
+2. **Claude Desktop**, la **aplicación** que se descarga en `https://claude.ai/download`. Instálala, ábrela **una vez** e inicia sesión.
+   - Ojo: una "app" de Claude creada desde Chrome o Edge (menú del navegador → *Instalar Claude como aplicación*) **se parece pero no sirve**: es solo la web y no admite MCP.
+   - Cómo saber cuál tienes: clic derecho en el acceso directo de Claude → *Abrir ubicación del archivo*. Si abre una carpeta llamada **Aplicaciones de Chrome** (o Edge), es la web app: instala la aplicación real.
+3. El archivo **`bloques_schaller_corregido.dwg`** que te pasó Juan, guardado en **Descargas, Escritorio, Documentos o OneDrive** (puede llamarse `bloques schaller_corregido.dwg`; da igual).
+4. Conexión a internet. Python lo instala el instalador si falta (no necesitas git).
 
 ## Paso 1: instalar (una sola línea)
-Abre **PowerShell** (tecla Windows, escribe `PowerShell`, Enter), pega el comando de arriba y espera a ver **`LISTO. Schaller MCP Diseno instalado.`** Si algo falla, el mensaje en rojo dice qué.
-El instalador busca `bloques_schaller_corregido.dwg` en Descargas, Escritorio, Documentos y OneDrive. Si lo guardaste en otro lado, indica la ruta antes de pegar el comando: `$env:SCHALLER_BIBLIOTECA = "C:\ruta\bloques_schaller_corregido.dwg"`.
 
-Alternativa sin internet: si Juan te pasó la carpeta del proyecto, haz doble clic en **`instalar_equipo.bat`**.
+Abre **PowerShell** o **Símbolo del sistema** (da igual), pega esta línea completa y pulsa Enter:
 
-El instalador no borra tus otros conectores de Claude Desktop (hace una copia `.bak` de la configuración).
+```
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 -OutFile $env:TEMP\schaller_instalar.ps1; & $env:TEMP\schaller_instalar.ps1"
+```
 
-## Paso 2: reiniciar Claude Desktop
-Ciérralo **por completo** (icono de la bandeja junto al reloj, clic derecho, *Quit*) y ábrelo otra vez.
-Ve a **Settings, Developer**: debe aparecer **`schaller-diseno`** con su interruptor encendido.
+El instalador hace todo solo: instala el MCP, lo conecta a Claude Desktop, comprueba AutoCAD, **busca `bloques_schaller_corregido.dwg` y lo abre**, y termina con un diagnóstico.
+- Si **Claude Desktop está abierto**, te pregunta si lo cierra (responde `S`): necesita cerrarlo para registrar el MCP.
+- Debe terminar con **`LISTO. Schaller MCP Diseno instalado.`** Si algo falla, el mensaje en rojo dice qué.
+- Si guardaste la biblioteca en otra carpeta, antes de pegar la línea indica la ruta (en PowerShell): `$env:SCHALLER_BIBLIOTECA = "C:\ruta\bloques_schaller_corregido.dwg"`
+
+El instalador no borra tus otros conectores de Claude (hace una copia `.bak` de su configuración).
+
+## Paso 2: abrir Claude Desktop y comprobar
+
+1. Abre **Claude Desktop** desde el menú Inicio.
+2. Ve a **Configuración → Aplicación de escritorio → Extensiones**. Abajo, en **Servidores MCP locales**, debe aparecer **`schaller-diseno`**.
+   (En inglés: *Settings → Desktop app → Extensions → Local MCP servers*.)
+3. En una **conversación nueva** escribe: *"Revisa el estado de AutoCAD"*. Debe responder con tu dibujo activo.
 
 ## Paso 3: cada vez que vayas a trabajar
-1. Abre AutoCAD con **`bloques_schaller_corregido.dwg`** (el instalador ya lo abre; si cerraste AutoCAD, ábrelo de nuevo) y **el plano donde vas a trabajar**. La biblioteca debe quedar abierta: de ahí se copian los bloques.
-   Para comprobar que todo está bien, en PowerShell: `& "$env:USERPROFILE\.schaller-diseno\.venv\Scripts\python.exe" "$env:USERPROFILE\.schaller-diseno\schaller_cli.py" diagnostico`
-2. En Claude Desktop, escribe por ejemplo: *"Revisa el estado de AutoCAD"*. Debe responder con tu dibujo activo.
-3. Pide lo que necesites. Ejemplos:
+
+1. Abre **una sola ventana de AutoCAD** con **`bloques_schaller_corregido.dwg`** y **tu plano**, y deja activa la **pestaña del plano**.
+   - Si la pestaña activa es *Start*, o no hay ningún dibujo, las herramientas fallan ("no hay dibujo activo").
+2. Pide lo que necesites. Ejemplos:
    - *"Escanea las zonas del plano"*
-   - *"Ubica las luminarias de la cama Gruppo-120 con la cabecera al norte"* (primero muestra un **ensayo**; confirma antes de que dibuje)
-   - *"Quita lo que colocamos"* (borra solo las capas `SCH_ILUMINACION` y `SCH_AUDIO`)
+   - *"Ubica las luminarias de la cama X con la cabecera al norte"*: primero muestra un **ensayo**; confirma antes de que dibuje.
+   - *"Quita lo que colocamos"*: borra solo las capas `SCH_ILUMINACION` y `SCH_AUDIO`.
+3. Si Claude no parece seguir el método, en el chat pulsa **`+`** y elige el prompt **`guia_de_diseno`** de `schaller-diseno`.
 
 **Planos grandes:** al escribir en un plano de más de 300 objetos, AutoCAD muestra un **código de 4 caracteres en la línea de comandos**. Claude te lo pedirá; léelo en AutoCAD y escríbeselo. Es una protección: nunca se escribe sin ese paso.
 
+**Planos sin textos de ambientes:** el escáner no encuentra zonas hasta que le dices qué son los bloques. Claude te preguntará y lo guardará en el perfil del proyecto.
+
 ## Actualizar
-Vuelve a pegar la misma línea del Paso 1 y reinicia Claude Desktop. Conserva tus perfiles de proyecto.
+
+Vuelve a pegar la misma línea del Paso 1 y reinicia Claude Desktop. Se conservan tus perfiles de proyecto.
+
+## Plan B: modo extensión
+
+Si después del Paso 2 `schaller-diseno` no aparece en *Servidores MCP locales*, instala el MCP como extensión (no usa el archivo de configuración). En PowerShell:
+
+```powershell
+$env:SCHALLER_MODO = "extension"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 -OutFile $env:TEMP\schaller_instalar.ps1; & $env:TEMP\schaller_instalar.ps1"
+```
+
+Se abre una ventana de Claude Desktop: pulsa **Instalar**. Si no se abre sola, arrastra el archivo `schaller-diseno.mcpb` (el instalador te muestra su carpeta) a la ventana de Claude. Después verás **Schaller Diseno (AutoCAD)** en *Configuración → Aplicación de escritorio → Extensiones*, con su interruptor.
 
 ## Si algo no funciona
+
+Primero ejecuta el diagnóstico (solo lee, no cambia nada) y mándale el resultado completo a Juan:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/diagnostico_claude.ps1 -OutFile $env:TEMP\schaller_diag.ps1; & $env:TEMP\schaller_diag.ps1"
+```
+
 | Síntoma | Qué hacer |
 |---|---|
-| No aparece `schaller-diseno` en Developer, o no hay opción Developer | Cierra Claude Desktop **por completo** y ábrelo de nuevo. Si sigue igual, usa el **Plan B (modo extensión)** de arriba. |
-| "No encontré AutoCAD abierto" | Abre AutoCAD con un dibujo antes de pedir nada. Debe ser AutoCAD completo, no LT. |
+| `irm` no se reconoce | Usa la línea del Paso 1 tal cual (empieza con `powershell`): funciona en CMD y en PowerShell. |
+| "Acceso denegado" al pegar la línea | Tu equipo bloquea la descarga. Pide a Juan la carpeta del proyecto y haz doble clic en `instalar_equipo.bat`. |
+| El instalador avisa *"no encontré Claude Desktop"* | Lo que usas es la web app de Chrome/Edge, o no hay nada instalado. Descarga la aplicación en `claude.ai/download`, ábrela, inicia sesión y repite el Paso 1. |
+| `schaller-diseno` no aparece en *Servidores MCP locales* | Cierra Claude Desktop **por completo** (bandeja → *Quit*, o Administrador de tareas) y ábrelo. Si sigue igual, repite el Paso 1 y responde `S` cuando pregunte por cerrar Claude. Si aun así no, usa el Plan B. |
+| Claude responde "no hay ningún dibujo activo" o las herramientas fallan | En AutoCAD debe estar activa la pestaña de un **dibujo**, no *Start*. Abre tu plano y haz clic en su pestaña. |
 | "bloques_no_disponibles" | Abre `bloques_schaller_corregido.dwg` en la misma sesión de AutoCAD. |
 | "La llamada fue rechazada" | AutoCAD está ocupado (un comando activo o regenerando). Pulsa Esc dos veces y repite. |
-| El instalador avisa *"no encontré Claude Desktop"* | Lo que usas es la web app de Chrome/Edge (o no hay nada instalado). Descarga la aplicación en `https://claude.ai/download`, ábrela, inicia sesión y vuelve a ejecutar el instalador. |
-| Claude responde "no hay ningún dibujo activo" o las herramientas fallan | En AutoCAD debe estar activa la pestaña de un **dibujo**, no la pestaña *Start*. Abre tu plano y haz clic en su pestaña. |
-| Dos ventanas o procesos de AutoCAD / la página *Start* sale gris | Guarda, cierra todo y pega `Get-Process acad \| Stop-Process -Force` en PowerShell; abre AutoCAD una sola vez. |
-| Claude Desktop ya no muestra el MCP tras reabrirlo | Cierra Claude Desktop **por completo** y repite el instalador (Claude reescribe su configuración al guardar preferencias). |
-| El instalador dice que falta Python | Instálalo desde python.org marcando **Add Python to PATH** y repite el Paso 1. |
-| Zonas vacías en un plano | Normal si el plano no trae textos de ambientes. Pide *"muéstrame las sugerencias de roles"* y clasifica los bloques con `perfil_proyecto`. |
+| Dos ventanas o procesos de AutoCAD, o la página *Start* sale gris | Guarda, cierra todo y en PowerShell pega `Get-Process acad \| Stop-Process -Force`; abre AutoCAD una sola vez. |
+| El instalador dice que falta Python | Instala Python 3.12 desde python.org marcando **Add Python to PATH** y repite el Paso 1. |
+| Zonas vacías en un plano | Normal si el plano no trae textos de ambientes: pídele a Claude que te muestre las sugerencias de bloques y clasifícalos. |
+| AutoCAD marca *TRIAL* con unos días | Es una licencia de prueba: cuando venza dejará de funcionar y el MCP con él. Usa la licencia de BBLABS. |
 
 ## Para Juan: qué entregar a cada persona
-1. Esta guía (o solo la línea del Paso 1).
-2. El archivo `bloques_schaller_corregido.dwg` (por Teams o SharePoint, no por correo personal).
+
+1. Este texto (o solo el Paso 1 y el archivo del punto 3).
+2. El archivo `bloques_schaller_corregido.dwg`, por Teams o SharePoint (no por correo personal).
 3. Nada más: el MCP se descarga solo.
+
+Mensaje para copiar y pegar:
+
+> Hola. Para usar el MCP de diseño: 1) instala Claude Desktop (la aplicación, no la de Chrome) desde claude.ai/download, ábrela e inicia sesión; 2) guarda el archivo bloques_schaller_corregido.dwg en Descargas o Documentos; 3) abre PowerShell o CMD y pega la línea del Paso 1 de la guía (INSTALACION_EQUIPO.md). Cuando diga LISTO, abre Claude Desktop y escríbele "Revisa el estado de AutoCAD" con AutoCAD abierto. Si algo falla, mándame el resultado del diagnóstico de la guía.

@@ -33,8 +33,15 @@ def rutas_config() -> list[Path]:
             if os.path.isdir(d):
                 destinos.append(Path(d) / cfg)
         for p in sorted(glob.glob(str(Path(local) / "Packages" / "Claude_*"))):
-            if os.path.isdir(p):
-                destinos.append(Path(p) / "LocalCache" / "Roaming" / "Claude" / cfg)
+            if not os.path.isdir(p):
+                continue
+            # La app crea Claude-Data\claude_<sufijo> al abrirse por primera vez. Si Claude Desktop se instalo pero nunca se abrio, esa
+            # carpeta aun no existe: se anticipa su nombre (el mismo sufijo del paquete) para no escribir solo en un sitio que ignora.
+            sufijo = os.path.basename(p).split("_", 1)[1]
+            datos = Path(local) / "Claude-Data" / f"claude_{sufijo}" / cfg
+            if datos not in destinos:
+                destinos.append(datos)
+            destinos.append(Path(p) / "LocalCache" / "Roaming" / "Claude" / cfg)
     return destinos or ([clasica] if clasica is not None else [])
 
 

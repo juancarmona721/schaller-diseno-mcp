@@ -60,12 +60,15 @@ def _entorno(monkeypatch, tmp_path, clasica=False, paquete=False, roaming_del_pa
 
 
 def test_msix_recien_instalado_escribe_en_la_carpeta_del_paquete_aunque_no_exista(monkeypatch, tmp_path):
-    # Caso real: Claude Desktop (MSIX) acaba de instalarse y aun no creo LocalCache\Roaming\Claude. Escribir en %APPDATA% no sirve.
+    # Caso real: Claude Desktop (MSIX) acaba de instalarse y NUNCA se ha abierto: aun no existe ni Claude-Data ni LocalCache\Roaming\Claude.
+    # Escribir en %APPDATA% no sirve. Se anticipa Claude-Data\claude_<sufijo del paquete> (lo que la app leera al abrirse) y el del paquete.
     appdata, pkg = _entorno(monkeypatch, tmp_path, paquete=True)
-    rutas = rc.rutas_config()
-    assert rutas == [pkg / "LocalCache" / "Roaming" / "Claude" / "claude_desktop_config.json"]
+    datos = tmp_path / "AppData" / "Local" / "Claude-Data" / "claude_abc123" / "claude_desktop_config.json"
+    paquete = pkg / "LocalCache" / "Roaming" / "Claude" / "claude_desktop_config.json"
+    assert rc.rutas_config() == [datos, paquete]
     assert rc.main(["py.exe", "server.py"]) == 0                       # y la escritura real crea las carpetas
-    assert json.loads(rutas[0].read_text(encoding="utf-8"))["mcpServers"]["schaller-diseno"]["command"] == "py.exe"
+    for ruta in (datos, paquete):
+        assert json.loads(ruta.read_text(encoding="utf-8"))["mcpServers"]["schaller-diseno"]["command"] == "py.exe"
     assert not (appdata / "Claude").exists()
 
 
@@ -77,6 +80,7 @@ def test_instalacion_clasica_escribe_en_appdata(monkeypatch, tmp_path):
 def test_clasica_y_msix_a_la_vez_escribe_en_las_dos(monkeypatch, tmp_path):
     appdata, pkg = _entorno(monkeypatch, tmp_path, clasica=True, paquete=True, roaming_del_paquete=True)
     assert set(rc.rutas_config()) == {appdata / "Claude" / "claude_desktop_config.json",
+                                      tmp_path / "AppData" / "Local" / "Claude-Data" / "claude_abc123" / "claude_desktop_config.json",
                                       pkg / "LocalCache" / "Roaming" / "Claude" / "claude_desktop_config.json"}
 
 
@@ -99,3 +103,10 @@ def test_msix_reciente_escribe_en_claude_data_y_conserva_las_preferencias_de_la_
     assert d["mcpServers"]["schaller-diseno"]["command"] == "py.exe"
     assert d["preferences"] == {"sidebarMode": "x", "anidado": {"a": [1, 2]}} and d["coworkUserFilesPath"] == "C:\\Claude"
     assert (datos / "claude_desktop_config.json.bak").is_file()               # copia de seguridad antes de tocarlo
+
+
+def test_si_claude_data_ya_existe_no_se_duplica_la_ruta(monkeypatch, tmp_path):
+    _, pkg = _entorno(monkeypatch, tmp_path, paquete=True)
+    (tmp_path / "AppData" / "Local" / "Claude-Data" / "claude_abc123").mkdir(parents=True)
+    rutas = rc.rutas_config()
+    assert len(rutas) == len(set(rutas)) == 2
