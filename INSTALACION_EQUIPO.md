@@ -68,6 +68,9 @@ Vuelve a pegar la misma línea del Paso 1 y reinicia Claude Desktop. Conserva tu
 | "bloques_no_disponibles" | Abre `bloques_schaller.dwg` en la misma sesión de AutoCAD. |
 | "La llamada fue rechazada" | AutoCAD está ocupado (un comando activo o regenerando). Pulsa Esc dos veces y repite. |
 | El instalador avisa *"no encontré Claude Desktop"* | Lo que usas es la web app de Chrome/Edge (o no hay nada instalado). Descarga la aplicación en `https://claude.ai/download`, ábrela, inicia sesión y vuelve a ejecutar el instalador. |
+| Claude responde "no hay ningún dibujo activo" o las herramientas fallan | En AutoCAD debe estar activa la pestaña de un **dibujo**, no la pestaña *Start*. Abre tu plano y haz clic en su pestaña. |
+| Dos ventanas o procesos de AutoCAD / la página *Start* sale gris | Guarda, cierra todo y pega `Get-Process acad \| Stop-Process -Force` en PowerShell; abre AutoCAD una sola vez. |
+| Claude Desktop ya no muestra el MCP tras reabrirlo | Cierra Claude Desktop **por completo** y repite el instalador (Claude reescribe su configuración al guardar preferencias). |
 | El instalador dice que falta Python | Instálalo desde python.org marcando **Add Python to PATH** y repite el Paso 1. |
 | Zonas vacías en un plano | Normal si el plano no trae textos de ambientes. Pide *"muéstrame las sugerencias de roles"* y clasifica los bloques con `perfil_proyecto`. |
 

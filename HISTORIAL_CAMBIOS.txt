@@ -197,3 +197,27 @@ balance de fases, potencia, metrado de cableado y asignacion de modulos en table
 5. Validaciones previas: choque con muros y mobiliario, distancia minima entre luminarias, orientacion hacia el anfitrion.
 6. Ensayo con vista previa y trazabilidad (marcar lo insertado con XData para poder deshacer o rehacer por zona).
 7. Realimentar las reglas con los patrones extraidos de planos terminados.
+
+
+--------------------------------------------------------------------------------
+9. LECCIONES DEL DESPLIEGUE EN OTRO PC (25/11/2026)
+--------------------------------------------------------------------------------
+Primera instalacion real en un PC sin el entorno de desarrollo. Todo lo que fallo estaba FUERA del codigo del MCP:
+  1. "irm no se reconoce": se pego en CMD, no en PowerShell. Ademas "irm ... | iex" lanzado desde CMD fue bloqueado ("Acceso denegado")
+     por la proteccion del equipo. El comando oficial descarga a un archivo y lo ejecuta con -File (dos lineas, PowerShell).
+  2. "Claude" en el menu Inicio era una WEB APP de Chrome/Edge (acceso directo en "Aplicaciones de Chrome"): se ve como app pero no admite
+     MCP, no tiene Developer ni carpeta en AppData ni abre archivos .mcpb. Hay que instalar la aplicacion real (claude.ai/download).
+     El instalador y diagnostico_claude.ps1 ahora lo detectan.
+  3. Claude Desktop de claude.ai/download es MSIX. Segun la version lee su config en sitios distintos y NO avisa si se escribe en otro:
+       - %APPDATA%\Claude (clasica)  - Packages\Claude_*\LocalCache\Roaming\Claude (MSIX anterior)
+       - %LOCALAPPDATA%\Claude-Data\<id>\claude_desktop_config.json (MSIX 2026; es el que abre "Editar configuracion"; guarda tambien
+         las preferencias de la app: el registro solo agrega mcpServers y hace .bak).
+     registrar_claude.py escribe en todos los que existen. Logs de la app: %LOCALAPPDATA%\Claude\logs (mcp.log y mcp-server-*.log).
+  4. Claude Desktop reescribe ese archivo con sus preferencias: se cierra ANTES de registrar (el instalador pregunta).
+  5. Extension .mcpb (Settings > Extensiones): el lanzador node NO debe usar stdio:"inherit" (el Node de Electron no da un stdin
+     heredable: Python terminaba en silencio, "process exiting early"). Se retransmite con tuberias. La copia que Claude instala es
+     independiente: al actualizar la extension hay que desinstalarla y arrastrar el .mcpb nuevo.
+  6. AutoCAD: con la pestana START activa, ActiveDocument falla ("Failed to get the Document object") y TODAS las herramientas del MCP
+     fallan: debe haber un dibujo abierto y activo. Dos procesos acad.exe (uno huerfano sin ventana) pueden hacer que COM se conecte a la
+     instancia equivocada y se asocian con la pagina de inicio gris: cerrar todos (Get-Process acad | Stop-Process) y reabrir.
+  7. AutoCAD en licencia TRIAL (NON COMMERCIAL): al vencer deja de funcionar y con el el MCP.
