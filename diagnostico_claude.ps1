@@ -7,6 +7,11 @@ $normal = Test-Path "$env:LOCALAPPDATA\AnthropicClaude"
 $store = @(Get-ChildItem "$env:LOCALAPPDATA\Packages" -Directory -Filter "Claude_*" -ErrorAction SilentlyContinue)
 Linea ("Instalacion normal (AnthropicClaude): " + $normal)
 Linea ("Version Microsoft Store (Claude_*): " + $store.Count)
+$pwa = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter "Claude*.lnk" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Chrome|Edge" } | Select-Object -First 1
+$desktopReal = $normal -or ($store.Count -gt 0) -or (Test-Path "$env:APPDATA\Claude\claude_desktop_config.json")
+Linea ("Claude Desktop (aplicacion) detectado: " + $desktopReal)
+Linea ("Acceso directo 'Claude' de Chrome/Edge (web app, NO admite MCP): " + [bool]$pwa)
+if ((-not $desktopReal) -and $pwa) { Linea ">> PROBABLE CAUSA: lo que usas como 'Claude' es la web app de Chrome/Edge, no Claude Desktop. Descarga la aplicacion en https://claude.ai/download." }
 $procs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like "claude*" })
 Linea ("Procesos con nombre claude abiertos ahora: " + $procs.Count + "  (pueden incluir otras herramientas de Claude; Claude Desktop debe cerrarse del todo y reabrirse tras instalar)")
 

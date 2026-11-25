@@ -27,6 +27,10 @@ Después verás **Schaller Diseno (AutoCAD)** en **Settings → Extensions** con
 ## Antes de empezar
 Necesitas en tu PC (Windows):
 - **AutoCAD completo** (no LT) y **Claude Desktop** instalados.
+- **Ojo con Claude Desktop:** tiene que ser la **aplicación** que se descarga en `https://claude.ai/download` (o de la Microsoft Store).
+  Una "app" de Claude creada desde Chrome o Edge (menú del navegador, *Instalar Claude como aplicación*) **se parece pero no sirve**: es solo la web, no admite MCP.
+  Cómo saber cuál tienes: clic derecho en el acceso directo de Claude → *Abrir ubicación del archivo*. Si abre una carpeta llamada **Aplicaciones de Chrome** (o Edge), es la web app y hay que instalar la aplicación real.
+  Otra pista: la aplicación real tiene arriba a la izquierda el menú **≡** (File, Edit...); la web app muestra los tres puntos del navegador.
 - El archivo **`bloques_schaller.dwg`** que te pasó Juan. Guárdalo en una carpeta fija (por ejemplo `Documentos\Schaller`) y no lo muevas.
 - Python 3.11 o superior: si no lo tienes, el instalador intenta instalarlo solo. Git **no** hace falta.
 
@@ -63,6 +67,7 @@ Vuelve a pegar la misma línea del Paso 1 y reinicia Claude Desktop. Conserva tu
 | "No encontré AutoCAD abierto" | Abre AutoCAD con un dibujo antes de pedir nada. Debe ser AutoCAD completo, no LT. |
 | "bloques_no_disponibles" | Abre `bloques_schaller.dwg` en la misma sesión de AutoCAD. |
 | "La llamada fue rechazada" | AutoCAD está ocupado (un comando activo o regenerando). Pulsa Esc dos veces y repite. |
+| El instalador avisa *"no encontré Claude Desktop"* | Lo que usas es la web app de Chrome/Edge (o no hay nada instalado). Descarga la aplicación en `https://claude.ai/download`, ábrela, inicia sesión y vuelve a ejecutar el instalador. |
 | El instalador dice que falta Python | Instálalo desde python.org marcando **Add Python to PATH** y repite el Paso 1. |
 | Zonas vacías en un plano | Normal si el plano no trae textos de ambientes. Pide *"muéstrame las sugerencias de roles"* y clasifica los bloques con `perfil_proyecto`. |
 

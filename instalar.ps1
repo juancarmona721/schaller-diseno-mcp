@@ -112,6 +112,11 @@ if ($env:SCHALLER_SIN_VERIFICAR -ne "1") {
     } finally { Pop-Location }
 }
 
+# Claude Desktop REAL (la aplicacion), no la "app" que Chrome/Edge crea con 'Instalar Claude como aplicacion':
+# esa es solo claude.ai en una ventana propia y NO admite MCP. Se mide ANTES de registrar nada (el registro puede crear carpetas).
+$hayDesktop = (Test-Path "$env:LOCALAPPDATA\AnthropicClaude") -or (Test-Path "$env:APPDATA\Claude\claude_desktop_config.json") -or (@(Get-ChildItem "$env:LOCALAPPDATA\Packages" -Directory -Filter "Claude_*" -ErrorAction SilentlyContinue).Count -gt 0)
+$pwaClaude = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter "Claude*.lnk" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Chrome|Edge" } | Select-Object -First 1
+
 # 5. Conectar con Claude Desktop ----------------------------------------------------------
 # Modo normal: se registra en claude_desktop_config.json (conserva lo que ya tengas).
 # Modo extension (SCHALLER_MODO=extension): no toca ningun archivo de configuracion; se instala la extension .mcpb desde Claude Desktop.
@@ -164,6 +169,14 @@ if (-not $ready -and $biblio -and $env:SCHALLER_NO_ABRIR -ne "1") {
     try { Start-Process $biblio } catch { Write-Host "   No pude abrirla sola; abre $biblio en AutoCAD." -ForegroundColor Yellow }
 }
 
+if (-not $hayDesktop) {
+    Write-Host ""
+    Write-Host "==========================================================" -ForegroundColor Yellow
+    Write-Host "  AVISO: no encontre Claude Desktop (la aplicacion)." -ForegroundColor Yellow
+    if ($pwaClaude) { Write-Host "  Tu acceso directo 'Claude' es una web app de Chrome/Edge: se ve como una aplicacion pero NO admite MCP." -ForegroundColor Yellow }
+    Write-Host "  Descarga la aplicacion en https://claude.ai/download, instalala, inicia sesion y vuelve a ejecutar este instalador." -ForegroundColor Yellow
+    Write-Host "==========================================================" -ForegroundColor Yellow
+}
 $mcpb = Join-Path $InstallDir "extension\schaller-diseno.mcpb"
 if ($modoExtension) {
     if (-not (Test-Path $mcpb)) { Fallo "No encuentro la extension ($mcpb). Vuelve a ejecutar el instalador para actualizar." }
