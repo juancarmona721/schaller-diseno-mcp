@@ -86,3 +86,25 @@ def test_lo_que_ya_esta_en_el_plano_no_se_toca():
     plano = Doc("plano.dwg", ["SIMBIOSI"])
     faltan, origenes, _ = sd._asegurar_bloques(Acad(plano), plano, ["SIMBIOSI"])
     assert faltan == [] and origenes == {} and plano.Blocks.Item("SIMBIOSI").circulos == []
+
+
+
+def test_reintenta_ante_autocad_ocupado_o_com_sin_respuesta_pero_no_ante_errores_reales():
+    assert sd._rechazada(Exception("(-2147418111, 'La llamada fue rechazada por el destinatario.')"))
+    assert sd._rechazada(AttributeError("Add.Count")) and sd._rechazada(AttributeError("<unknown>.Item"))   # COM dinamico sin respuesta
+    assert not sd._rechazada(AttributeError("'NoneType' object has no attribute 'x'"))                       # un error de programa no se reintenta
+    assert not sd._rechazada(KeyError("x")) and not sd._rechazada(ValueError("fallo real"))
+
+
+def test_reintentar_se_recupera_de_un_fallo_pasajero(monkeypatch):
+    monkeypatch.setattr(sd.time, "sleep", lambda s: None)
+    llamadas = []
+
+    def inestable():
+        llamadas.append(1)
+        if len(llamadas) < 3:
+            raise AttributeError("Add.Count")
+        return "ok"
+    assert sd.reintentar(inestable) == "ok" and len(llamadas) == 3
+    with __import__("pytest").raises(ValueError):
+        sd.reintentar(lambda: (_ for _ in ()).throw(ValueError("real")))

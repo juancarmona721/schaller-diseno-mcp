@@ -23,8 +23,11 @@ MAX_TEXTOS, MAX_POLI, MAX_BLOQUES, MAX_VERTICES = 8000, 6000, 8000, 200
 
 
 def _rechazada(ex) -> bool:
+    """AutoCAD ocupado: 'llamada rechazada', o un AttributeError de COM ('Add.Count', '<unknown>.Item') cuando devuelve un objeto sin respuesta."""
     t = str(ex).lower()
-    return "-2147418111" in t or "rechazada" in t or "rejected" in t
+    if "-2147418111" in t or "rechazada" in t or "rejected" in t:
+        return True
+    return isinstance(ex, AttributeError) and "has no attribute" not in t and " " not in t.strip()
 
 
 def reintentar(fn, intentos=8, espera=1.0):
