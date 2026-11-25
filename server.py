@@ -9,6 +9,7 @@ from mcp.server.fastmcp import FastMCP
 
 import acad
 import fichas
+import guia_diseno
 import motor_ubicacion
 import productos
 import zonas_motor
@@ -24,11 +25,14 @@ def cargar_config() -> dict:
 
 
 CFG = cargar_config()
-mcp = FastMCP("diseno-mcp", instructions=(
-    "REGLA DE REFERENCIAS (equipo de diseno): " + referencias.REGLA + " Cuando el usuario diga que el plano esta "
-    "terminado, o pida cerrar/finalizar fichas, llama a pedir_referencias_finales y pide la cotizacion o las "
-    "referencias; no escribas referencias en las fichas antes de eso."))
+mcp = FastMCP("diseno-mcp", instructions=guia_diseno.instrucciones(referencias.REGLA))
 REF_JSON = AQUI / "referencias_finales.json"
+
+
+@mcp.prompt(name="guia_de_diseno", description="Como usar el MCP de diseno: flujo de zonas y ubicacion, y las reglas que no se negocian.")
+def guia_de_diseno() -> str:
+    """Pega la guia de trabajo en la conversacion (util si el asistente no la esta aplicando)."""
+    return guia_diseno.FLUJO + "\nAplica esta guia en todo lo que sigue. Empieza revisando el estado de AutoCAD."
 
 
 def _hoja():

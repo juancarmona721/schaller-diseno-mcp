@@ -116,3 +116,22 @@ def test_la_sonda_solo_puede_borrar_las_capas_sch():
     assert 'CAPAS_SCH = ("SCH_ILUMINACION", "SCH_AUDIO")' in src
     cuerpo = src[src.index("def op_quitar"):src.index("def main")]
     assert cuerpo.count(".Delete()") == 3 and "Layer) not in CAPAS_SCH" in cuerpo    # 2x SelectionSet.Delete + 1 entidad, con barrera de capa
+
+
+# ------------------------------------------------------------------------------------------------ guia para el asistente
+def test_el_servidor_entrega_la_guia_completa_como_instrucciones_y_como_prompt():
+    import asyncio
+    ins = server.mcp.instructions
+    for clave in ("escanear_zonas", "perfil_proyecto", "ubicar_en_anfitrion", "ensayo", "quitar_colocaciones", "bloques_schaller_corregido",
+                  "linea de comandos", "regla de referencias", "pedir_referencias_finales"):
+        assert clave in ins.lower(), clave
+    prompts = asyncio.run(server.mcp.list_prompts())
+    assert [p.name for p in prompts] == ["guia_de_diseno"]
+    r = asyncio.run(server.mcp.get_prompt("guia_de_diseno"))
+    assert "GUIA DE DISENO" in r.messages[0].content.text and "estado de AutoCAD" in r.messages[0].content.text
+
+
+def test_la_guia_no_contradice_las_reglas_del_equipo():
+    import guia_diseno
+    assert "POR DEFINIR (cotizacion)" in guia_diseno.FLUJO and "DEFENSA" not in guia_diseno.FLUJO
+    assert "nunca lo inventes" in guia_diseno.FLUJO.lower() or "nunca lo inventes" in guia_diseno.FLUJO

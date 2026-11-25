@@ -39,6 +39,7 @@ py-modules = [
     "registrar_claude",
     "motor_ubicacion",
     "zonas_motor",
+    "guia_diseno",
     "schaller_cli"
 ]
 
