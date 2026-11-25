@@ -16,7 +16,7 @@ Tiempo: unos 5 minutos. No necesitas saber programar.
 Abre **PowerShell** o **Símbolo del sistema** (da igual), pega esta línea completa y pulsa Enter:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 -OutFile $env:TEMP\schaller_instalar.ps1; & $env:TEMP\schaller_instalar.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 -OutFile $env:TEMP\schaller_instalar.ps1; & $env:TEMP\schaller_instalar.ps1"
 ```
 
 El instalador hace todo solo: instala el MCP, lo conecta a Claude Desktop, comprueba AutoCAD, **busca `bloques_schaller_corregido.dwg` y lo abre**, y termina con un diagnóstico.
@@ -57,7 +57,7 @@ Si después del Paso 2 `schaller-diseno` no aparece en *Servidores MCP locales*,
 
 ```powershell
 $env:SCHALLER_MODO = "extension"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 -OutFile $env:TEMP\schaller_instalar.ps1; & $env:TEMP\schaller_instalar.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 -OutFile $env:TEMP\schaller_instalar.ps1; & $env:TEMP\schaller_instalar.ps1"
 ```
 
 Se abre una ventana de Claude Desktop: pulsa **Instalar**. Si no se abre sola, arrastra el archivo `schaller-diseno.mcpb` (el instalador te muestra su carpeta) a la ventana de Claude. Después verás **Schaller Diseno (AutoCAD)** en *Configuración → Aplicación de escritorio → Extensiones*, con su interruptor.
@@ -67,7 +67,7 @@ Se abre una ventana de Claude Desktop: pulsa **Instalar**. Si no se abre sola, a
 Primero ejecuta el diagnóstico (solo lee, no cambia nada) y mándale el resultado completo a Juan:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/diagnostico_claude.ps1 -OutFile $env:TEMP\schaller_diag.ps1; & $env:TEMP\schaller_diag.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/diagnostico_claude.ps1 -OutFile $env:TEMP\schaller_diag.ps1; & $env:TEMP\schaller_diag.ps1"
 ```
 
 | Síntoma | Qué hacer |

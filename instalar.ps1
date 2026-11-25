@@ -4,6 +4,8 @@
 # Variables opcionales (entorno): SCHALLER_DIR (destino), SCHALLER_REPO (url git), SCHALLER_CLAUDE_CONFIG (json de Claude),
 # SCHALLER_SIN_VERIFICAR=1 (omite la prueba final).
 $ErrorActionPreference = "Stop"
+# GitHub exige TLS 1.2; en Windows 10 con PowerShell 5.1 sin actualizar no siempre es el valor por defecto.
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}
 
 function Paso($t) { Write-Host "-> $t" -ForegroundColor Yellow }
 function Fallo($t) { Write-Host ""; Write-Host "ERROR: $t" -ForegroundColor Red; throw $t }
@@ -71,14 +73,14 @@ if ($Origen) {
     if (-not $listo) {       # sin git (lo normal en un PC de diseno) o si git fallo: se baja el zip
         Paso "Descargando el proyecto (zip, no necesita git)..."
         $zipUrl = if ($env:SCHALLER_ZIP) { $env:SCHALLER_ZIP } else { ($Repo -replace "\.git$", "") + "/archive/refs/heads/main.zip" }
-        $tmp = Join-Path $env:TEMP ("schaller_" + [guid]::NewGuid().ToString("N"))
+        $tmp = Join-Path $env:TEMP ("sc_" + [guid]::NewGuid().ToString("N").Substring(0, 8))      # corto: Expand-Archive falla con rutas de mas de 260 caracteres
         New-Item -ItemType Directory -Path $tmp -Force | Out-Null
         $zip = Join-Path $tmp "proyecto.zip"
         try {
             $ProgressPreference = "SilentlyContinue"
             if ($zipUrl -match "^https?://") { Invoke-WebRequest -Uri $zipUrl -OutFile $zip -UseBasicParsing } else { Copy-Item $zipUrl $zip }
             Expand-Archive -Path $zip -DestinationPath $tmp -Force
-        } catch { Fallo "No se pudo descargar el proyecto ($zipUrl). Revisa tu conexion o pide la carpeta del proyecto y ejecuta instalar_equipo.bat desde ella." }
+        } catch { Fallo "No se pudo descargar o descomprimir el proyecto ($zipUrl). Causa: $($_.Exception.Message). Revisa tu conexion o pide la carpeta del proyecto y ejecuta instalar_equipo.bat desde ella." }
         $raiz = Get-ChildItem $tmp -Directory | Select-Object -First 1
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
         robocopy $raiz.FullName $InstallDir /E /NFL /NDL /NJH /NJS /NP /XD perfiles cache | Out-Null
