@@ -439,7 +439,10 @@ def ver_plano(destino_contiene: str | None = None, limite_objetos: int = 20000, 
     return acad.ver_plano(destino_contiene, int(limite_objetos), int(max_espacios), **_tiempos())
 
 
-CARPETA_PERFILES = AQUI / "perfiles"          # datos propios de cada proyecto (roles de bloques, zonas manuales): NO se versionan
+# Datos propios de cada proyecto (roles de bloques, zonas manuales): NO se versionan. Viven en UN solo sitio por usuario, compartido por
+# cualquier copia del MCP (la instalada para Claude Desktop y la de desarrollo): si cada copia tuviera su carpeta, el perfil creado en una
+# no lo veria la otra y el escaner devolveria 0 zonas sin ningun error. Se puede cambiar con SCHALLER_PERFILES.
+CARPETA_PERFILES = Path(os.environ.get("SCHALLER_PERFILES") or Path.home() / ".schaller-diseno" / "perfiles")
 CARPETA_CACHE = AQUI / "cache"
 VOCAB = zonas_motor.cargar_vocabulario()
 

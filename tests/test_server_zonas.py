@@ -135,3 +135,24 @@ def test_la_guia_no_contradice_las_reglas_del_equipo():
     import guia_diseno
     assert "POR DEFINIR (cotizacion)" in guia_diseno.FLUJO and "DEFENSA" not in guia_diseno.FLUJO
     assert "nunca lo inventes" in guia_diseno.FLUJO.lower() or "nunca lo inventes" in guia_diseno.FLUJO
+
+
+def test_los_perfiles_viven_en_un_solo_sitio_por_usuario_y_no_en_la_carpeta_de_cada_copia():
+    # Causa real de "0 zonas" en Claude Desktop: el perfil se creo en la carpeta de desarrollo y el MCP instalado tenia otra, vacia.
+    import importlib
+    import os
+    from pathlib import Path
+    assert server.CARPETA_PERFILES != server.AQUI / "perfiles" or server.AQUI == Path.home() / ".schaller-diseno"
+    anterior = os.environ.get("SCHALLER_PERFILES")
+    try:
+        os.environ.pop("SCHALLER_PERFILES", None)
+        recargado = importlib.reload(server)
+        assert recargado.CARPETA_PERFILES == Path.home() / ".schaller-diseno" / "perfiles"
+        os.environ["SCHALLER_PERFILES"] = "X:/otra/carpeta"
+        assert importlib.reload(server).CARPETA_PERFILES == Path("X:/otra/carpeta")
+    finally:
+        if anterior is None:
+            os.environ.pop("SCHALLER_PERFILES", None)
+        else:
+            os.environ["SCHALLER_PERFILES"] = anterior
+        importlib.reload(server)
