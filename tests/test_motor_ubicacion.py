@@ -66,9 +66,9 @@ def test_rotulos_solo_en_bloques_sin_referencia_estampada():
 
 
 def test_escalas_del_catalogo():
-    c = mu.colocacion("cctevo58", 0, 0)
-    assert c["escala"] == 0.001 and mu.colocacion("ci160", 0, 0)["escala"] == 1.0
-    assert mu.colocacion("simbiosis", 0, 0)["escala"] == 1.0 and mu.colocacion("simbiosis", 0, 0)["ancla"] == "bbox"
+    # La biblioteca corregida esta toda en mm: el valor de reserva es 0.001 (la escala real se calibra midiendo el bloque insertado).
+    assert all(mu.colocacion(k, 0, 0)["escala"] == 0.001 for k in mu.PRODUCTOS)
+    assert mu.colocacion("simbiosis", 0, 0)["ancla"] == "insercion"        # el bloque nuevo ya viene centrado en su origen
 
 
 def test_mesa_4x_centrada_y_simetrica():
@@ -204,15 +204,27 @@ def test_todos_los_productos_tienen_tamano_esperado():
 
 def test_simbiosis_con_alias_y_rotulo_correcto():
     c = mu.colocacion("simbiosi", 0, 0)                     # alias de quien lo escribe sin la ultima S
-    assert c["producto"] == "simbiosis" and c["bloque"] == "SIMBIOSI"      # el bloque del plano se llama SIMBIOSI
-    assert c["etiqueta"]["texto"] == "SIMBIOSIS"                          # el rotulo es el nombre real del producto
+    assert c["producto"] == "simbiosis" and c["bloque"] == "Simbiosis_Davide Groppi"   # nombre del bloque en bloques_schaller_corregido
+    assert c["etiqueta"]["texto"] == "SIMBIOSIS"                                       # el rotulo es el nombre real del producto
 
 
-def test_simbiosis_tiene_definicion_interna_con_el_tamano_aprobado():
-    c = mu.DEFINICIONES_INTERNAS["SIMBIOSI"]["circulos"]
-    assert len(c) == 9
-    xs = [x - r for x, _, r in c] + [x + r for x, _, r in c]
-    ys = [y - r for _, y, r in c] + [y + r for _, y, r in c]
-    assert max(xs) - min(xs) == pytest.approx(0.5485, abs=0.002) and max(ys) - min(ys) == pytest.approx(0.402, abs=0.002)
-    assert (max(xs) + min(xs)) / 2 == pytest.approx(0, abs=0.01)          # centrada en el origen: ya no cae a 3 m del punto
-    assert mu.PRODUCTOS["simbiosis"]["bloque"] in mu.DEFINICIONES_INTERNAS
+def test_nombres_de_la_biblioteca_corregida():
+    assert mu.PRODUCTOS["ci200qr"]["bloque"] == "Ci200QR_KEF"                         # antes CI200QR_
+    assert mu.colocacion("ci200qr", 0, 0)["etiqueta"]["texto"] == "Ci200QR"           # sigue rotulandose con su referencia exacta
+    assert mu.TAM_M["simbiosis"] == pytest.approx(0.752, abs=0.001) and mu.TAM_M["ci200qr"] == pytest.approx(0.573, abs=0.001)
+
+
+@pytest.mark.parametrize("nombre,es_bib,prioridad", [
+    ("bloques schaller_corregido.dwg", True, 0),       # como se descargo: con ESPACIO
+    ("bloques_schaller_corregido.dwg", True, 0),
+    ("Bloques-Schaller_Corregido (1).dwg", True, 0),
+    ("bloques_schaller.dwg", True, 1),                 # la antigua: valida pero con menos prioridad
+    ("V5_ MOLTENI VILLA- CASA SCHALLER 20.10.26.dwg", False, 2),
+    ("Dibujo1.dwg", False, 2),
+])
+def test_reconoce_la_biblioteca_con_espacio_guion_o_guion_bajo(nombre, es_bib, prioridad):
+    assert mu.es_biblioteca(nombre) is es_bib and mu.prioridad_biblioteca(nombre) == prioridad
+
+
+def test_ya_no_hay_definiciones_internas_porque_la_biblioteca_trae_la_simbiosis_oficial():
+    assert mu.DEFINICIONES_INTERNAS == {}

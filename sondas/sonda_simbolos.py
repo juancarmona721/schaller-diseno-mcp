@@ -11,6 +11,7 @@ Argumento (JSON en argv[1]): {"origen_contiene", "destino_contiene" | null, "nom
 """
 import collections
 import json
+import re
 import sys
 
 # metros por unidad (INSUNITS)
@@ -39,8 +40,8 @@ def existe(coleccion, nombre) -> bool:
 
 def elegir_doc(docs, contiene, excluir=None):
     """(doc, None) si hay exactamente uno cuyo nombre contiene el texto; (None, mensaje) si no. No revela nombres."""
-    t = str(contiene).casefold()
-    hallados = [d for d in docs if t in str(d.Name).casefold() and d is not excluir]
+    t = re.sub(r"[^a-z0-9]", "", str(contiene).casefold())
+    hallados = [d for d in docs if t in re.sub(r"[^a-z0-9]", "", str(d.Name).casefold()) and d is not excluir]
     if len(hallados) == 1:
         return hallados[0], None
     return None, f"{len(hallados)} documentos abiertos coinciden con '{contiene}' (se necesita exactamente 1)."

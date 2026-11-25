@@ -232,14 +232,14 @@ def _copiar_definicion(origen, destino, nombre):
     import pythoncom
     from win32com.client import VARIANT
     src = origen.Blocks.Item(nombre)
-    nb = destino.Blocks.Add(pt(*tuple(src.Origin)[:2]), nombre)
+    nb = reintentar(lambda: destino.Blocks.Add(pt(*tuple(src.Origin)[:2]), nombre))
     try:
         ents = [e for e in src]
         arr = VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, tuple(ents))
         try:
-            origen.CopyObjects(arr, nb)
+            reintentar(lambda: origen.CopyObjects(arr, nb))
         except Exception:      # algunas versiones exigen el 3er argumento (IDPairs) por referencia
-            origen.CopyObjects(arr, nb, VARIANT(pythoncom.VT_BYREF | pythoncom.VT_VARIANT, None))
+            reintentar(lambda: origen.CopyObjects(arr, nb, VARIANT(pythoncom.VT_BYREF | pythoncom.VT_VARIANT, None)))
     except Exception:
         try:
             nb.Delete()        # solo la definicion vacia que se acaba de crear aqui
@@ -249,19 +249,19 @@ def _copiar_definicion(origen, destino, nombre):
 
 
 def _asegurar_bloques(acad, doc, nombres):
-    """Importa los bloques que falten: primero de bloques_schaller.dwg, luego de otro dibujo abierto. (faltan, origenes, errores)."""
+    """Importa los bloques que falten: primero de la biblioteca CORREGIDA, luego de otra biblioteca y luego de otro dibujo abierto."""
     from sonda_escribir import existe
     faltan = [n for n in nombres if not existe(doc.Blocks, n)]
     origenes, errores = {}, {}
     otros = [d for d in acad.Documents if d.Name != doc.Name]
-    otros.sort(key=lambda d: 0 if "bloques_schaller" in d.Name.lower() else 1)     # la biblioteca primero
+    otros.sort(key=lambda d: motor_ubicacion.prioridad_biblioteca(d.Name))     # corregida, luego otra biblioteca, luego el resto
     for n in list(faltan):
         for d in otros:
             if not existe(d.Blocks, n):
                 continue
             try:
                 _copiar_definicion(d, doc, n)
-                origenes[n] = "biblioteca" if "bloques_schaller" in d.Name.lower() else "otro_dibujo_abierto"
+                origenes[n] = ("biblioteca_corregida", "biblioteca_antigua", "otro_dibujo_abierto")[motor_ubicacion.prioridad_biblioteca(d.Name)]
                 break
             except Exception as e:
                 errores[n] = f"{type(e).__name__}: {e}"
@@ -312,7 +312,7 @@ def op_insertar(acad, doc, args):
         faltan = [n for n in faltan if not any(existe(d.Blocks, n) for d in otros) and n not in motor_ubicacion.DEFINICIONES_INTERNAS]
     if faltan:
         return {"ok": False, "error": "bloques_no_disponibles", "faltan": faltan, "errores_importacion": errores,
-                "detalle": "Esos bloques no estan en el plano ni en bloques_schaller.dwg (debe estar abierto) ni en otro dibujo abierto. "
+                "detalle": "Esos bloques no estan en el plano ni en bloques_schaller_corregido.dwg (debe estar abierto) ni en otro dibujo abierto. "
                            "No se inserto nada (todo o nada)."}
     if not ejecutar:
         return {"ok": True, "ejecutado": False, "colocaciones": len(cols), "objetos_en_modelo": total}
@@ -328,10 +328,10 @@ def op_insertar(acad, doc, args):
     for c in cols:
         nombre = c["bloque"]
         e = escalas[nombre][0] if nombre in escalas else 1.0
-        ref = ms.InsertBlock(pt(c["x"], c["y"]), nombre, e, e, e, float(c["rot"]))
+        ref = reintentar(lambda: ms.InsertBlock(pt(c["x"], c["y"]), nombre, e, e, e, float(c["rot"])))
         ref.Layer = c["capa"]
         if nombre not in escalas:
-            a0 = _bbox(ref)
+            a0 = reintentar(lambda: _bbox(ref))
             esc, como = motor_ubicacion.escala_por_medida(max(a0[2] - a0[0], a0[3] - a0[1]), c.get("tam_m"), unidad_m, float(c["escala"]))
             if esc != 1.0:
                 ref.XScaleFactor = esc
@@ -339,11 +339,11 @@ def op_insertar(acad, doc, args):
                 ref.ZScaleFactor = esc
             escalas[nombre] = (esc, como)
             e = esc
-        a = _bbox(ref)
+        a = reintentar(lambda: _bbox(ref))
         cx, cy = (a[0] + a[2]) / 2, (a[1] + a[3]) / 2
         desv = math.hypot(cx - c["x"], cy - c["y"])
         if c.get("ancla") == "bbox":
-            ref.Move(pt(cx, cy), pt(c["x"], c["y"]))      # el dibujo queda centrado en el punto pedido
+            reintentar(lambda: ref.Move(pt(cx, cy), pt(c["x"], c["y"])))      # el dibujo queda centrado en el punto pedido
         elif desv * unidad_m > DESVIACION_AVISO:
             avisos.append(f"{c['bloque']}: su dibujo queda a {desv * unidad_m:.2f} m del punto de insercion (punto base lejano). "
                           "Revisa; si es esperado, marca ancla 'bbox' en el catalogo.")
@@ -355,7 +355,7 @@ def op_insertar(acad, doc, args):
         handles.append(str(ref.Handle))
         et = c.get("etiqueta")
         if et:
-            t = ms.AddText(et["texto"], pt(et["x"], et["y"]), float(et["altura"]))
+            t = reintentar(lambda: ms.AddText(et["texto"], pt(et["x"], et["y"]), float(et["altura"])))
             t.Layer = et["capa"]
             t.Color = int(et["color"])
             handles.append(str(t.Handle))
@@ -365,10 +365,12 @@ def op_insertar(acad, doc, args):
 
 
 def op_diagnostico(acad, doc):
-    """Estado de la sesion de AutoCAD: dibujo activo, dibujos abiertos y si la biblioteca bloques_schaller esta abierta."""
+    """Estado de la sesion de AutoCAD: dibujo activo, dibujos abiertos y que biblioteca de bloques hay abierta (corregida o antigua)."""
     nombres = [str(d.Name) for d in acad.Documents]
-    return {"ok": True, "dibujo_activo": str(doc.Name), "documentos": nombres,
-            "biblioteca_abierta": any("bloques_schaller" in n.lower() for n in nombres)}
+    bibliotecas = [n for n in nombres if motor_ubicacion.es_biblioteca(n)]
+    return {"ok": True, "dibujo_activo": str(doc.Name), "documentos": nombres, "bibliotecas_abiertas": bibliotecas,
+            "biblioteca_abierta": bool(bibliotecas),
+            "biblioteca_corregida_abierta": any(motor_ubicacion.prioridad_biblioteca(n) == 0 for n in bibliotecas)}
 
 
 def op_quitar(doc, args):

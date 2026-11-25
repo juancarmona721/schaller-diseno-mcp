@@ -702,7 +702,7 @@ def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccio
 
     Calcula las posiciones desde el bbox del anfitrion y, cuando hay muros, con RAYOS a muros (primer muro, sin saltar de
     ambiente). Es idempotente: lo que ya esta puesto (mismo bloque a <0.30 m) no se duplica. Rotula solo los bloques que no
-    traen su referencia dibujada (H=0.035 m). Los bloques que falten se importan de bloques_schaller.dwg (debe estar abierto).
+    traen su referencia dibujada (H=0.035 m). Los bloques que falten se importan de bloques_schaller_corregido.dwg (debe estar abierto).
 
     Anfitrion: `anfitrion` (nombre del bloque; con varios iguales usa cerca_de=[x,y]) o usar_seleccion=True (el mueble
     seleccionado en AutoCAD).
@@ -822,9 +822,9 @@ def dibujar_flechas(flechas: list[dict], ejecutar: bool = False, confirmacion: s
 
 
 @mcp.tool()
-def comparar_biblioteca(destino_contiene: str | None = None, origen_contiene: str = "bloques_schaller",
+def comparar_biblioteca(destino_contiene: str | None = None, origen_contiene: str = "bloques_schaller_corregido",
                         mostrar_solo_en_plano: bool = False) -> dict:
-    """SOLO LECTURA: compara la biblioteca (bloques_schaller) con un plano abierto y dice que bloques estan al dia.
+    """SOLO LECTURA: compara la biblioteca (bloques_schaller_corregido) con un plano abierto y dice que bloques estan al dia.
 
     Devuelve: cuantos iguales, cuales FALTAN en el plano (se copian con importar_biblioteca), cuales estan POSIBLEMENTE
     DESACTUALIZADOS (mismo nombre pero otra forma o tamano; no se actualizan solos) y cuantos bloques del plano no estan en
@@ -839,9 +839,9 @@ def comparar_biblioteca(destino_contiene: str | None = None, origen_contiene: st
 
 
 @mcp.tool()
-def importar_biblioteca(destino_contiene: str | None = None, origen_contiene: str = "bloques_schaller",
+def importar_biblioteca(destino_contiene: str | None = None, origen_contiene: str = "bloques_schaller_corregido",
                         ejecutar: bool = False, confirmacion: str | None = None, solo_con_ficha: bool = True) -> dict:
-    """MODIFICA EL DIBUJO DESTINO (solo agrega): copia los bloques de PRODUCTO de la biblioteca (bloques_schaller) a un plano.
+    """MODIFICA EL DIBUJO DESTINO (solo agrega): copia los bloques de PRODUCTO de la biblioteca (bloques_schaller_corregido) a un plano.
 
     Por defecto solo los que tienen ficha (estan colocados en el modelo de la biblioteca) y sus sub-bloques internos; asi no se
     cuelan definiciones sueltas ni restos de otros planos (cotas, niveles, nombres de proyectos). solo_con_ficha=False copia

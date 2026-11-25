@@ -124,13 +124,17 @@ ESCALAS_BLOQUES_SCHALLER = {
     "CCTEvo Architectural_160_Targetti": 0.001,
     "FORTYEIGHT Label_7_Targetti": 0.001,
     "Ci200QS Pared_KEF": 0.001,
-    # SIMBIOSI: su geometria mide ~0.54 unidades de bloque (un pendiente de ~54 cm): a 0.001 queda de 0.5 mm, invisible.
+    "Simbiosis_Davide Groppi": 0.001,
+    "Moon_60_Davide Groppi": 0.001,
+    "Ci160CRDS_KEF": 0.001,
+    "Ci200QR_KEF": 0.001,
+    "Durastrip IP68_45W_Targetti": 0.001,
+    "Durastrip IP20_75W_Targetti": 0.001,
+    # La biblioteca bloques_schaller_corregido esta TODA en milimetros. Esto es solo el valor de reserva: al insertar, la escala se
+    # calibra midiendo el bloque (si ya existia en el plano con otras unidades, p. ej. convertido a metros, se detecta).
+    # Nombres anteriores (planos hechos con la biblioteca vieja):
     "SIMBIOSI": 1.0,
-    # Bloques modelados en metros (requieren escala 1.0 en planos en metros):
-    "Ci160CRDS_KEF": 1.0,
     "CI200QR_": 1.0,
-    "Durastrip IP68_45W_Targetti": 1.0,
-    "Durastrip IP20_75W_Targetti": 1.0,
 }
 
 BLOQUES_CON_REFERENCIA_ESTAMPADA = {
@@ -145,6 +149,8 @@ REFERENCIAS_TECNICAS_OBLIGATORIAS = {
     "Ci160CRDS_KEF": ("Ci160CRDS", "SCH_AUDIO", 6),
     "Ci200QS Pared_KEF": ("Ci200QS", "SCH_AUDIO", 6),
     "CI200QR_": ("Ci200QR", "SCH_AUDIO", 6),
+    "Ci200QR_KEF": ("Ci200QR", "SCH_AUDIO", 6),
+    "Simbiosis_Davide Groppi": ("SIMBIOSIS", "SCH_ILUMINACION", 7),
     "SIMBIOSI": ("SIMBIOSIS", "SCH_ILUMINACION", 7),   # el BLOQUE se llama SIMBIOSI; el producto/rotulo es SIMBIOSIS
     "Durastrip IP68_45W_Targetti": ("Durastrip IP68", "SCH_ILUMINACION", 5),
     "Durastrip IP20_75W_Targetti": ("Durastrip IP20", "SCH_ILUMINACION", 6),

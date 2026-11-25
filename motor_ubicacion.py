@@ -7,6 +7,7 @@ contra el diseno aprobado de la Villa Schaller (ver tests/test_motor_ubicacion.p
 Marco local de un anfitrion: u = a lo largo del borde de referencia, v = alejandose de ese borde hacia el interior.
 """
 import math
+import re
 
 import patrones_diseno as pd
 
@@ -19,27 +20,24 @@ PRODUCTOS = {
     "cctevo58":       {"bloque": "CCTEvo Architectural_58_Targetti", "capa": "SCH_ILUMINACION", "descripcion": "Proyector CCTEvo 58 (Targetti)"},
     "cctevo160":      {"bloque": "CCTEvo Architectural_160_Targetti", "capa": "SCH_ILUMINACION", "descripcion": "Proyector CCTEvo 160 (Targetti)"},
     "l7":             {"bloque": "FORTYEIGHT Label_7_Targetti", "capa": "SCH_ILUMINACION", "frente": 0.0, "descripcion": "Proyector FORTYEIGHT Label 7 (Targetti)"},
-    "simbiosis":      {"bloque": "SIMBIOSI", "capa": "SCH_ILUMINACION", "ancla": "bbox", "descripcion": "Suspension SIMBIOSIS (Davide Groppi); el bloque en los planos se llama SIMBIOSI"},
+    "simbiosis":      {"bloque": "Simbiosis_Davide Groppi", "capa": "SCH_ILUMINACION", "descripcion": "Suspension SIMBIOSIS (Davide Groppi)"},
     "moon60":         {"bloque": "Moon_60_Davide Groppi", "capa": "SCH_ILUMINACION", "descripcion": "Suspension Moon 60 (Davide Groppi)"},
     "durastrip_ip68": {"bloque": "Durastrip IP68_45W_Targetti", "capa": "SCH_ILUMINACION", "lineal": True, "descripcion": "Tira LED Durastrip IP68 45W"},
     "durastrip_ip20": {"bloque": "Durastrip IP20_75W_Targetti", "capa": "SCH_ILUMINACION", "lineal": True, "descripcion": "Tira LED Durastrip IP20 75W"},
     "ci160":          {"bloque": "Ci160CRDS_KEF", "capa": "SCH_AUDIO", "descripcion": "Parlante de techo KEF Ci160CRDS"},
-    "ci200qr":        {"bloque": "CI200QR_", "capa": "SCH_AUDIO", "descripcion": "Parlante de techo KEF Ci200QR"},
+    "ci200qr":        {"bloque": "Ci200QR_KEF", "capa": "SCH_AUDIO", "descripcion": "Parlante de techo KEF Ci200QR"},
     "ci200qs":        {"bloque": "Ci200QS Pared_KEF", "capa": "SCH_AUDIO", "frente": -math.pi / 2, "descripcion": "Parlante de pared KEF Ci200QS"},
 }
 
 # Dimension mayor REAL (m) de cada bloque tal como se ve en el diseno aprobado (medida de las instancias de la Villa).
 # Sirve para autocalibrar la escala: definiciones en mm (biblioteca) o en m (convertidas a mano) y planos en otras unidades.
-TAM_M = {"cctevo58": 0.254, "cctevo160": 0.423, "l7": 0.320, "simbiosis": 0.548, "moon60": 0.692,
-         "durastrip_ip68": 1.808, "durastrip_ip20": 1.816, "ci160": 0.450, "ci200qr": 0.591, "ci200qs": 0.582}
+# Medidas de la INSTANCIA insertada desde bloques_schaller_corregido (mm -> m), no de la definicion.
+TAM_M = {"cctevo58": 0.2685, "cctevo160": 0.4147, "l7": 0.3294, "simbiosis": 0.7524, "moon60": 0.692,
+         "durastrip_ip68": 1.807, "durastrip_ip20": 1.816, "ci160": 0.450, "ci200qr": 0.5733, "ci200qs": 0.583}
 
-# Bloques que el MCP sabe CREAR si no estan ni en el plano ni en bloques_schaller.dwg (asi un companero no queda bloqueado por una
+# Bloques que el MCP sabe CREAR si no estan ni en el plano ni en la biblioteca (asi un companero no queda bloqueado por una
 # biblioteca incompleta). Circulos [dx, dy, radio] en METROS, centrados en el origen. SIMBIOSIS: 0.55 x 0.40 m (medido del plano aprobado).
-DEFINICIONES_INTERNAS = {
-    "SIMBIOSI": {"circulos": [[-0.2442, -0.0137, 0.03], [-0.0001, 0.0215, 0.16], [-0.2037, 0.1703, 0.03], [-0.2018, -0.171, 0.03],
-                              [-0.0002, 0.1244, 0.03], [0.0026, -0.0773, 0.03], [0.2442, -0.0128, 0.03], [0.203, 0.171, 0.03],
-                              [0.2024, -0.1703, 0.03]]},
-}
+DEFINICIONES_INTERNAS: dict = {}   # {nombre_de_bloque: {"circulos": [[dx, dy, radio], ...]}}; vacio: la biblioteca corregida trae todo
 
 CAPAS_COLOR = {"SCH_ILUMINACION": 4, "SCH_AUDIO": 6}
 ALTURA_ROTULO = 0.035
@@ -168,6 +166,22 @@ def escala_por_medida(d_def: float | None, tam_m: float | None, unidad_m: float,
 
 
 ALIAS_PRODUCTOS = {"simbiosi": "simbiosis"}      # nombres que la gente escribe mal o abrevia -> clave del catalogo
+
+
+def _compacto(nombre) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(nombre).lower())
+
+
+def es_biblioteca(nombre) -> bool:
+    """True si el dibujo es una biblioteca de bloques Schaller. Acepta espacio, guion o guion bajo: 'bloques schaller_corregido.dwg'."""
+    return "bloquesschaller" in _compacto(nombre)
+
+
+def prioridad_biblioteca(nombre) -> int:
+    """0 = biblioteca CORREGIDA (la oficial desde 25/11/2026), 1 = otra biblioteca Schaller (antigua), 2 = no es biblioteca."""
+    if not es_biblioteca(nombre):
+        return 2
+    return 0 if "corregid" in _compacto(nombre) else 1
 
 
 def colocacion(producto: str, x: float, y: float, rot: float = 0.0, etiquetar: bool = True, nota: str = "") -> dict:

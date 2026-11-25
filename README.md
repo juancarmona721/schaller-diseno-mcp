@@ -12,7 +12,7 @@ Requisitos: Windows, AutoCAD completo (no LT) y Claude Desktop. Python 3.11+ (el
    (o `powershell -ExecutionPolicy Bypass -File instalar.ps1`).
 2. **Cerrar Claude Desktop por completo** (icono de la bandeja > Quit) y abrirlo de nuevo.
 3. En **Settings > Developer** aparece `schaller-diseno` con su interruptor; en el chat, el icono de herramientas.
-4. Abrir AutoCAD con `bloques_schaller.dwg` y el plano de trabajo.
+4. Abrir AutoCAD con `bloques_schaller_corregido.dwg` y el plano de trabajo.
 
 El instalador crea `%USERPROFILE%\.schaller-diseno`, su entorno virtual, verifica que el servidor arranca y agrega el MCP a
 `claude_desktop_config.json` **sin tocar tus otros servidores** (hace copia `.bak`; detecta tambien Claude Desktop de la
@@ -28,7 +28,7 @@ Flujo: `listar_anfitriones` (o seleccionar el mueble en AutoCAD) -> `ubicar_en_a
 posiciones y avisos -> repetir con `ejecutar=True`. Calcula desde la geometria real del mueble y, si hay muros, con rayos al
 primer muro. Es idempotente, rotula solo lo que no trae su referencia, calibra la escala midiendo el bloque y se detiene si
 el plano no trae muros en vez de adivinar. Recetas: `cama`, `pared_frente`, `centro`, `mesa_4x`, `tira_borde`, `linea`
-(`catalogo_ubicacion` las lista). Requiere `bloques_schaller.dwg` abierto para importar los bloques que falten.
+(`catalogo_ubicacion` las lista). Requiere `bloques_schaller_corregido.dwg` abierto para importar los bloques que falten.
 
 ## Escaner de zonas (cualquier tipo de proyecto)
 `escanear_zonas` detecta los espacios del plano activo sin asumir que es una casa: nombres de espacios (vocabulario editable en

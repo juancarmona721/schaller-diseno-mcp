@@ -36,10 +36,12 @@ def test_comando_desconocido_o_ausente():
 
 
 def test_informe_diagnostico_todo_bien_y_cada_falta():
-    ok = cli.informe_diagnostico({"ok": True, "dibujo_activo": "plano.dwg", "biblioteca_abierta": True})
-    assert ok[0].startswith("[OK] AutoCAD responde") and ok[1].startswith("[OK] bloques_schaller")
-    sin_lib = cli.informe_diagnostico({"ok": True, "dibujo_activo": "plano.dwg", "biblioteca_abierta": False})
-    assert sin_lib[1].startswith("[ ] Falta abrir bloques_schaller")
+    ok = cli.informe_diagnostico({"ok": True, "dibujo_activo": "plano.dwg", "biblioteca_abierta": True, "biblioteca_corregida_abierta": True})
+    assert ok[0].startswith("[OK] AutoCAD responde") and ok[1].startswith("[OK] bloques_schaller_corregido")
+    antigua = cli.informe_diagnostico({"ok": True, "dibujo_activo": "plano.dwg", "biblioteca_abierta": True, "biblioteca_corregida_abierta": False})
+    assert antigua[1].startswith("[ ] Tienes abierta la biblioteca ANTIGUA")
+    sin_lib = cli.informe_diagnostico({"ok": True, "dibujo_activo": "plano.dwg", "biblioteca_abierta": False, "biblioteca_corregida_abierta": False})
+    assert sin_lib[1].startswith("[ ] Falta abrir bloques_schaller_corregido")
     cerrado = cli.informe_diagnostico({"ok": False, "error": "autocad_no_abierto", "detalle": "No encontre AutoCAD abierto"})
     assert len(cerrado) == 1 and "AutoCAD no esta abierto" in cerrado[0]
     assert cli.informe_diagnostico({"ok": False, "error": "raro", "detalle": "x"})[0].startswith("[X]")
@@ -47,7 +49,9 @@ def test_informe_diagnostico_todo_bien_y_cada_falta():
 
 def test_diagnostico_devuelve_codigo_segun_el_estado(monkeypatch, capsys):
     import server
-    monkeypatch.setattr(server.acad, "diseno", lambda args, **kw: {"ok": True, "dibujo_activo": "p.dwg", "biblioteca_abierta": True})
+    monkeypatch.setattr(server.acad, "diseno", lambda args, **kw: {"ok": True, "dibujo_activo": "p.dwg", "biblioteca_abierta": True, "biblioteca_corregida_abierta": True})
     assert cli.main(["diagnostico"]) == 0 and "todo listo" in capsys.readouterr().out
-    monkeypatch.setattr(server.acad, "diseno", lambda args, **kw: {"ok": True, "dibujo_activo": "p.dwg", "biblioteca_abierta": False})
+    monkeypatch.setattr(server.acad, "diseno", lambda args, **kw: {"ok": True, "dibujo_activo": "p.dwg", "biblioteca_abierta": True, "biblioteca_corregida_abierta": False})
+    assert cli.main(["diagnostico"]) == 1          # solo la biblioteca antigua: aun no esta listo
+    monkeypatch.setattr(server.acad, "diseno", lambda args, **kw: {"ok": True, "dibujo_activo": "p.dwg", "biblioteca_abierta": False, "biblioteca_corregida_abierta": False})
     assert cli.main(["diagnostico"]) == 1

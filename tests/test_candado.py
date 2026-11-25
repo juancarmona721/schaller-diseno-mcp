@@ -447,6 +447,6 @@ def test_importar_biblioteca_tool_resume(monkeypatch):
         "simbolos": {"A": {"estado": "se_importaria"}, "B": {"estado": "ya_existia_en_destino (no se toca)"},
                      "C": {"estado": "fallo", "detalle": "x"}}})
     r = server.importar_biblioteca()
-    assert llamadas[0]["nombres"] is None and llamadas[0]["como_esta"] is True and llamadas[0]["origen_contiene"] == "bloques_schaller"
+    assert llamadas[0]["nombres"] is None and llamadas[0]["como_esta"] is True and llamadas[0]["origen_contiene"] == "bloques_schaller_corregido"
     assert r["resumen"] == {"total": 3, "se_importarian_o_importados": 1, "ya_existian": 1, "fallaron": 1}
     assert "ENSAYO" in r["aviso"] and list(r["fallos"]) == ["C"]

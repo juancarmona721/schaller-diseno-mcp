@@ -34,11 +34,46 @@ class Acad:
         self.Documents = list(docs)
 
 
-def test_si_el_bloque_no_esta_en_ningun_lado_se_crea_la_definicion_interna():
+def test_si_el_bloque_no_esta_en_ningun_lado_se_crea_la_definicion_interna(monkeypatch):
+    # El mecanismo se conserva aunque hoy no haya definiciones propias (la biblioteca corregida trae todo).
+    monkeypatch.setattr(sd.motor_ubicacion, "DEFINICIONES_INTERNAS", {"BloqueDePrueba": {"circulos": [[0, 0, 0.1]] * 9}})
     plano = Doc("plano.dwg")
-    faltan, origenes, errores = sd._asegurar_bloques(Acad(plano, Doc("bloques_schaller.dwg", ["otro"])), plano, ["SIMBIOSI"])
-    assert faltan == [] and origenes == {"SIMBIOSI": "definicion_interna"} and errores == {}
-    assert len(plano.Blocks.Item("SIMBIOSI").circulos) == 9
+    faltan, origenes, errores = sd._asegurar_bloques(Acad(plano, Doc("bloques_schaller_corregido.dwg", ["otro"])), plano, ["BloqueDePrueba"])
+    assert faltan == [] and origenes == {"BloqueDePrueba": "definicion_interna"} and errores == {}
+    assert len(plano.Blocks.Item("BloqueDePrueba").circulos) == 9
+
+
+def test_la_biblioteca_corregida_tiene_prioridad_aunque_su_nombre_lleve_espacio(monkeypatch):
+    plano = Doc("plano.dwg")
+    antigua = Doc("bloques_schaller.dwg", ["Simbiosis_Davide Groppi"])
+    corregida = Doc("bloques schaller_corregido.dwg", ["Simbiosis_Davide Groppi"])         # nombre real: con ESPACIO
+    otro = Doc("otro_plano.dwg", ["Simbiosis_Davide Groppi"])
+    # Se copia del primero que lo tenga segun la prioridad; sin Add real, se comprueba que el origen declarado es la corregida.
+    copiado = []
+    monkeypatch.setattr(sd, "_copiar_definicion", lambda origen, destino, nombre: (copiado.append(origen.Name), destino.Blocks.Add(None, nombre)))
+    faltan, origenes, _ = sd._asegurar_bloques(Acad(plano, otro, antigua, corregida), plano, ["Simbiosis_Davide Groppi"])
+    assert copiado == ["bloques schaller_corregido.dwg"] and origenes == {"Simbiosis_Davide Groppi": "biblioteca_corregida"} and faltan == []
+
+
+def test_sin_corregida_usa_la_antigua_y_luego_cualquier_dibujo(monkeypatch):
+    plano = Doc("plano.dwg")
+    copiado = []
+    monkeypatch.setattr(sd, "_copiar_definicion", lambda origen, destino, nombre: (copiado.append(origen.Name), destino.Blocks.Add(None, nombre)))
+    _, origenes, _ = sd._asegurar_bloques(Acad(plano, Doc("otro.dwg", ["B"]), Doc("bloques_schaller.dwg", ["B"])), plano, ["B"])
+    assert copiado == ["bloques_schaller.dwg"] and origenes == {"B": "biblioteca_antigua"}
+    plano2 = Doc("plano2.dwg")
+    _, origenes2, _ = sd._asegurar_bloques(Acad(plano2, Doc("otro.dwg", ["B"])), plano2, ["B"])
+    assert origenes2 == {"B": "otro_dibujo_abierto"}
+
+
+def test_diagnostico_distingue_biblioteca_corregida_de_la_antigua():
+    nueva = Acad(Doc("plano.dwg"), Doc("bloques schaller_corregido.dwg"))
+    d = sd.op_diagnostico(nueva, nueva.Documents[0])
+    assert d["biblioteca_corregida_abierta"] is True and d["bibliotecas_abiertas"] == ["bloques schaller_corregido.dwg"]
+    vieja = Acad(Doc("plano.dwg"), Doc("bloques_schaller.dwg"))
+    d = sd.op_diagnostico(vieja, vieja.Documents[0])
+    assert d["biblioteca_abierta"] is True and d["biblioteca_corregida_abierta"] is False
+    assert sd.op_diagnostico(Acad(Doc("plano.dwg")), Doc("plano.dwg"))["biblioteca_abierta"] is False
 
 
 def test_un_bloque_sin_definicion_interna_ni_origen_se_reporta_como_faltante():

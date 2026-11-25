@@ -165,13 +165,14 @@ if (-not $biblio) {
     $raices = @("$env:USERPROFILE\Downloads", "$env:USERPROFILE\Desktop", "$env:USERPROFILE\Documents")
     $raices += (Get-ChildItem $env:USERPROFILE -Directory -Filter "OneDrive*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
     $hallados = foreach ($r in $raices) {
-        if (Test-Path $r) { Get-ChildItem $r -Recurse -Depth 4 -Filter "bloques_schaller*.dwg" -File -ErrorAction SilentlyContinue }
+        if (Test-Path $r) { Get-ChildItem $r -Recurse -Depth 4 -Filter "bloques*schaller*.dwg" -File -ErrorAction SilentlyContinue }
     }
-    $mejor = $hallados | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    # Desde el 25/11/2026 la biblioteca oficial es bloques_schaller_corregido (el nombre puede traer espacio o guion bajo): esa primero.
+    $mejor = $hallados | Sort-Object @{ Expression = { $_.Name -match "corregid" }; Descending = $true }, @{ Expression = { $_.LastWriteTime }; Descending = $true } | Select-Object -First 1
     if ($mejor) { $biblio = $mejor.FullName }
 }
 if ($biblio -and (Test-Path $biblio)) { Write-Host "   Biblioteca encontrada: $biblio" -ForegroundColor Green }
-else { $biblio = $null; Write-Host "   No encontre bloques_schaller.dwg. Guardalo en Documentos y vuelve a ejecutar este instalador, o abrelo a mano en AutoCAD." -ForegroundColor Yellow }
+else { $biblio = $null; Write-Host "   No encontre bloques_schaller_corregido.dwg. Guardalo en Documentos y vuelve a ejecutar este instalador, o abrelo a mano en AutoCAD." -ForegroundColor Yellow }
 
 $cli = Join-Path $InstallDir "schaller_cli.py"
 $ready = $false
@@ -216,5 +217,5 @@ if ($modoExtension) {
     Write-Host "   Si NO aparece, repite la instalacion en modo extension: `$env:SCHALLER_MODO='extension'  y vuelve a ejecutar este instalador." -ForegroundColor Yellow
 }
 if ($ready) { Write-Host "3. AutoCAD ya esta listo con la biblioteca: puedes empezar a pedirle cosas a Claude." -ForegroundColor White }
-else { Write-Host "3. Abre tu plano en AutoCAD (con bloques_schaller.dwg abierto). Para comprobarlo: $VenvPython $cli diagnostico" -ForegroundColor White }
+else { Write-Host "3. Abre tu plano en AutoCAD (con bloques_schaller_corregido.dwg abierto). Para comprobarlo: $VenvPython $cli diagnostico" -ForegroundColor White }
 Write-Host "==========================================================" -ForegroundColor Cyan

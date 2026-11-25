@@ -167,8 +167,8 @@ def analizar(doc, limite=20000, max_espacios=60, r=lambda f: f()) -> dict:
 def elegir_doc(docs, contiene, activo):
     if not contiene:
         return activo, None
-    t = str(contiene).casefold()
-    hallados = [d for d in docs if t in str(d.Name).casefold()]
+    t = re.sub(r"[^a-z0-9]", "", str(contiene).casefold())
+    hallados = [d for d in docs if t in re.sub(r"[^a-z0-9]", "", str(d.Name).casefold())]
     if len(hallados) == 1:
         return hallados[0], None
     return None, f"{len(hallados)} documentos abiertos coinciden con '{contiene}' (se necesita exactamente 1)."

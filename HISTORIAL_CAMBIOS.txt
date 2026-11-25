@@ -221,3 +221,20 @@ Primera instalacion real en un PC sin el entorno de desarrollo. Todo lo que fall
      fallan: debe haber un dibujo abierto y activo. Dos procesos acad.exe (uno huerfano sin ventana) pueden hacer que COM se conecte a la
      instancia equivocada y se asocian con la pagina de inicio gris: cerrar todos (Get-Process acad | Stop-Process) y reabrir.
   7. AutoCAD en licencia TRIAL (NON COMMERCIAL): al vencer deja de funcionar y con el el MCP.
+
+
+--------------------------------------------------------------------------------
+10. BIBLIOTECA OFICIAL: bloques_schaller_corregido (25/11/2026)
+--------------------------------------------------------------------------------
+Desde hoy el archivo de bloques es bloques_schaller_corregido.dwg (en la practica se descargo como "bloques schaller_corregido.dwg",
+con ESPACIO: el MCP reconoce espacio, guion o guion bajo). Esta en milimetros (INSUNITS=4), 221 definiciones (la anterior: 362).
+Cambios respecto a la biblioteca antigua que afectan al catalogo:
+  - SIMBIOSIS: ahora es "Simbiosis_Davide Groppi" (752 x 499 mm, centrada en el origen). Ya no hace falta el bloque "SIMBIOSI" ni la
+    definicion interna aproximada. Los planos hechos con la biblioteca vieja pueden conservar el bloque "SIMBIOSI".
+  - Ci200QR: ahora "Ci200QR_KEF" (573 x 401 mm); antes "CI200QR_".
+  - CCTEvo 58 / 160 y FORTYEIGHT L7 midieron entre 2 % y 6 % mas que en la version anterior; Durastrip (1807 / 1816 mm), Moon 60,
+    Ci160CRDS y Ci200QS Pared no cambiaron de tamano. TAM_M del motor se recalibro con las instancias de ESTA biblioteca.
+  - Nuevos bloques disponibles aun sin receta: Ci160QR_KEF, Ci200ER_KEF, Q150_KEF, KUBE_8/10/12_KEF, Ventura 6_KEF, CCTEvo 78/105,
+    FORTYEIGHT Label 2/4/6, Moon 80/120/200, Durastrip IP20 25W/45W.
+Seleccion de biblioteca: si hay varias abiertas se usa primero la "corregida", luego otra biblioteca Schaller, luego cualquier dibujo.
+Robustez: la insercion reintenta ante "llamada rechazada" (AutoCAD ocupado), tambien al copiar bloques y al medir.
