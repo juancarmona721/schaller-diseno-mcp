@@ -39,13 +39,13 @@ El instalador no borra tus otros conectores de Claude (hace una copia `.bak` de 
    - Si la pestaña activa es *Start*, o no hay ningún dibujo, las herramientas fallan ("no hay dibujo activo").
 2. Pide lo que necesites. Ejemplos:
    - *"Escanea las zonas del plano"*
-   - *"Ubica las luminarias de la cama X con la cabecera al norte"*: primero muestra un **ensayo**; confirma antes de que dibuje.
+   - *"Ubica las luminarias de la cama X con la cabecera al norte"*: Claude decide y coloca directo, y al final te informa supuestos y omitidos. Para ver antes de colocar, pídele *"muéstrame primero (ensayo)"*.
    - *"Quita lo que colocamos"*: borra solo las capas `SCH_ILUMINACION` y `SCH_AUDIO`.
 3. Si Claude no parece seguir el método, en el chat pulsa **`+`** y elige el prompt **`guia_de_diseno`** de `schaller-diseno`.
 
 **Planos grandes:** al escribir en un plano de más de 300 objetos, AutoCAD muestra un **código de 4 caracteres en la línea de comandos**. Claude te lo pedirá; léelo en AutoCAD y escríbeselo. Es una protección: nunca se escribe sin ese paso.
 
-**Planos sin textos de ambientes:** el escáner no encuentra zonas hasta que le dices qué son los bloques. Claude te preguntará y lo guardará en el perfil del proyecto.
+**Planos sin textos de ambientes:** el escáner no encuentra zonas hasta que le dices qué son los bloques. Claude elegirá el rol más probable, lo declarará como supuesto y lo guardará en el perfil del proyecto.
 
 ## Actualizar
 
