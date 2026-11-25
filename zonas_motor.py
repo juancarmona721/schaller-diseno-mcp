@@ -118,7 +118,18 @@ def slug_proyecto(nombre: str) -> str:
 
 
 def perfil_vacio() -> dict:
-    return {"roles_bloques": {}, "ignorar_bloques": [], "zonas_manuales": [], "tipologia": None}
+    # atributos_bloques: lo que el usuario ya respondio sobre un bloque y no debe volver a preguntarsele (cabecera de una cama, ancho real,
+    # puntos exactos de un compartimento...). Las herramientas lo usan solas como valores por defecto.
+    return {"roles_bloques": {}, "ignorar_bloques": [], "zonas_manuales": [], "tipologia": None, "atributos_bloques": {}}
+
+
+def atributos_de(perfil: dict, nombre: str) -> dict:
+    """Atributos guardados para un bloque (sin distinguir mayusculas). {} si no hay."""
+    nombre = (nombre or "").casefold()
+    for k, v in (perfil or {}).get("atributos_bloques", {}).items():
+        if k.casefold() == nombre:
+            return dict(v)
+    return {}
 
 
 def cargar_perfil(carpeta, nombre_dibujo: str) -> dict:
@@ -192,6 +203,15 @@ def _pista_por_tamano(w, h):
 
 
 # ----------------------------------------------------------------------------------------------------------------- zonas
+def _detalle(h: dict, perfil: dict) -> dict:
+    """Ficha de un mueble en una zona. Si el usuario ya respondio cosas sobre el (perfil), van en 'atributos': no hay que volver a preguntar."""
+    d = {k: h[k] for k in ("nombre", "rol", "x", "y", "w", "h")}
+    a = atributos_de(perfil, h["nombre"])
+    if a:
+        d["atributos"] = a
+    return d
+
+
 def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, tipologia: str | None = None) -> dict:
     """raw = {"unidad_m", "textos": [{t,x,y,capa}], "poligonos": [{capa,pts}], "bloques": [{n,capa,x0,y0,x1,y1}]}."""
     perfil = {**perfil_vacio(), **(perfil or {})}
@@ -266,7 +286,7 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
             z = min(cercanas, key=lambda c: c[0])[1] if cercanas else None
         if z is not None:
             z["muebles"].append(h["nombre"])
-            z["muebles_detalle"].append({k: h[k] for k in ("nombre", "rol", "x", "y", "w", "h")})
+            z["muebles_detalle"].append(_detalle(h, perfil))
             h["_asignado"] = True
 
     # --- zonas inferidas por agrupamiento de mobiliario sin zona
@@ -303,7 +323,7 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
         zonas.append({"nombre": f"{tipo.replace('_', ' ').capitalize()} {contador[tipo]} (inferida: {ancla['nombre']})", "tipo_espacio": tipo,
                       "grupos": grupos_vocab, "x": round(cx, 3), "y": round(cy, 3), "capa": ancla["capa"], "origen": "mobiliario",
                       "confianza": "baja", "bbox": None, "area_m2": None, "muebles": sorted({m["nombre"] for m in miembros}),
-                      "muebles_detalle": [{k: m[k] for k in ("nombre", "rol", "x", "y", "w", "h")} for m in miembros], "_poli": None})
+                      "muebles_detalle": [_detalle(m, perfil) for m in miembros], "_poli": None})
 
     # --- zonas manuales del perfil (el usuario manda)
     for zm in perfil.get("zonas_manuales", []):

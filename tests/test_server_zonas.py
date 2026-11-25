@@ -156,3 +156,64 @@ def test_los_perfiles_viven_en_un_solo_sitio_por_usuario_y_no_en_la_carpeta_de_c
         else:
             os.environ["SCHALLER_PERFILES"] = anterior
         importlib.reload(server)
+
+
+# ------------------------------------------------------------------------------------------------ el perfil recuerda las respuestas
+def test_atributos_se_fusionan_borran_y_no_distinguen_mayusculas(autocad):
+    server.perfil_proyecto("atributos", bloque="Cama X", atributos={"cabecera": "N", "ancho_cama": 2.0})
+    server.perfil_proyecto("atributos", bloque="cama x", atributos={"filas": [0.9, 2.1], "ancho_cama": None})        # fusiona; null borra una clave
+    assert server.perfil_proyecto("ver")["perfil"]["atributos_bloques"] == {"Cama X": {"cabecera": "N", "filas": [0.9, 2.1]}}
+    server.perfil_proyecto("atributos", bloque="CAMA X", atributos={})                                              # {} borra el bloque entero
+    assert server.perfil_proyecto("ver")["perfil"]["atributos_bloques"] == {}
+    assert server.perfil_proyecto("atributos", bloque="X")["error"] == "faltan_datos"
+    assert server.perfil_proyecto("atributos", atributos={"a": 1})["error"] == "faltan_datos"
+
+
+def test_el_escaner_devuelve_los_atributos_de_cada_mueble(autocad):
+    estado, _ = autocad
+    estado["dibujo"] = "Casa_B.dwg"
+    server.perfil_proyecto("rol", bloque="Mod-9", rol="cama")
+    server.perfil_proyecto("atributos", bloque="Mod-9", atributos={"cabecera": "O"})
+    z = server.escanear_zonas()["zonas"][-1]
+    assert z["muebles_detalle"][0]["nombre"] == "Mod-9" and z["muebles_detalle"][0]["atributos"] == {"cabecera": "O"}
+
+
+def test_ubicar_usa_solos_los_atributos_guardados_y_lo_explicito_manda(autocad, monkeypatch):
+    server.perfil_proyecto("atributos", bloque="Cama X", atributos={"cabecera": "N", "ancho_cama": 2.0, "nota": "no es una opcion"})
+
+    def diseno(args, **kw):
+        if args["op"] == "contexto":
+            return {"ok": True, "plano": "Oficina_A.dwg", "muros": [], "n_muros": 0, "existentes": [],
+                    "anfitrion": {"nombre": "Cama X", "x0": 0, "y0": 0, "x1": 2.9, "y1": 2.4, "w": 2.9, "h": 2.4}}
+        return {"ok": True, "ejecutado": False, "colocaciones": len(args["colocaciones"])}
+    monkeypatch.setattr(server.acad, "diseno", diseno)
+    r = server.ubicar_en_anfitrion(receta="cama", anfitrion="Cama X")                  # sin cabecera ni ancho: salen del perfil, sin preguntar
+    assert r["ok"] and r["a_colocar"] == 7 and r["opciones_del_perfil"] == {"cabecera": "N", "ancho_cama": 2.0}
+    tira = next(c for c in r["colocaciones"] if c["producto"] == "durastrip_ip68")
+    assert tira["y"] > 2.3                                                             # cabecera N: la tira va en el borde norte (y1 = 2.4)
+    lateral = [c for c in r["colocaciones"] if c["producto"] == "cctevo58" and "lateral" in c["nota"]]
+    assert min(c["x"] for c in lateral) == pytest.approx(1.45 - 1.0 - 0.45, abs=0.02)   # ancho 2.0 (no 2.9): lo guardado se uso de verdad
+    r2 = server.ubicar_en_anfitrion(receta="cama", anfitrion="Cama X", opciones={"cabecera": "S"})
+    assert next(c for c in r2["colocaciones"] if c["producto"] == "durastrip_ip68")["y"] < 0.5      # lo explicito gana al perfil
+
+
+def test_en_puntos_con_los_puntos_del_perfil_no_necesita_preguntar_nada(autocad, monkeypatch):
+    server.perfil_proyecto("atributos", bloque="Bano 1", atributos={"puntos": [[4242.38, 1466.32]]})
+
+    def diseno(args, **kw):
+        if args["op"] == "contexto":
+            return {"ok": True, "plano": "Oficina_A.dwg", "muros": [], "n_muros": 0, "existentes": [],
+                    "anfitrion": {"nombre": "Bano 1", "x0": 0, "y0": 0, "x1": 3, "y1": 4, "w": 3, "h": 4}}
+        return {"ok": True, "ejecutado": False, "colocaciones": len(args["colocaciones"])}
+    monkeypatch.setattr(server.acad, "diseno", diseno)
+    r = server.ubicar_en_anfitrion(receta="en_puntos", anfitrion="Bano 1", opciones={"producto": "ci160"})
+    assert r["ok"] and [(c["x"], c["y"]) for c in r["colocaciones"]] == [(4242.38, 1466.32)]
+
+
+def test_la_guia_manda_actuar_y_no_interrogar():
+    import guia_diseno
+    g = guia_diseno.FLUJO
+    for frase in ("ACTUA, NO INTERROGUES", "SUPUESTOS", "UN mensaje", "perfil_proyecto(accion=\"atributos\")", "en_puntos", "UNA aprobacion"):
+        assert frase in g, frase
+    assert "pregunta SOLO" in g.lower() or "Pregunta SOLO" in g
+    assert "pregúntamelo" not in g.lower() and "pregunta n/s/e/o" not in g.lower()           # la vieja politica ya no esta

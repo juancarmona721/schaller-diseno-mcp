@@ -228,3 +228,25 @@ def test_reconoce_la_biblioteca_con_espacio_guion_o_guion_bajo(nombre, es_bib, p
 
 def test_ya_no_hay_definiciones_internas_porque_la_biblioteca_trae_la_simbiosis_oficial():
     assert mu.DEFINICIONES_INTERNAS == {}
+
+
+# ------------------------------------------------------------------------------------------------ receta en_puntos
+def test_en_puntos_coloca_exactamente_donde_se_indica_sin_mirar_al_anfitrion():
+    plan, _ = mu.planear("en_puntos", CAMA2, {"producto": "ci160", "puntos": [[4242.38, 1466.32], [4244.22, 1466.32]]})
+    assert [(c["x"], c["y"]) for c in plan] == [(4242.38, 1466.32), (4244.22, 1466.32)]
+    assert all(c["producto"] == "ci160" and c["etiqueta"]["texto"] == "Ci160CRDS" for c in plan)
+
+
+def test_en_puntos_con_apuntar_a_gira_cada_producto_hacia_el_objetivo():
+    plan, _ = mu.planear("en_puntos", CAMA2, {"producto": "l7", "puntos": [[0, 0], [10, 0]], "apuntar_a": [5, 0]})
+    assert plan[0]["rot"] == pytest.approx(0, abs=1e-3)                      # el de la izquierda mira al este
+    assert plan[1]["rot"] == pytest.approx(math.pi, abs=1e-3)                # el de la derecha mira al oeste
+
+
+def test_en_puntos_valida_los_datos_y_acepta_alias_en_apuntar():
+    with pytest.raises(mu.ErrorUbicacion):
+        mu.planear("en_puntos", CAMA2, {"producto": "ci160"})                              # sin puntos
+    with pytest.raises(mu.ErrorUbicacion):
+        mu.planear("en_puntos", CAMA2, {"producto": "ci160", "puntos": [["a", "b"]]})     # punto invalido
+    with pytest.raises(mu.ErrorUbicacion):
+        mu.planear("en_puntos", CAMA2, {"producto": "ci160", "puntos": [[0, 0]], "apuntar_a": [1, 0]})   # no es direccional

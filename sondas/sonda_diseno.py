@@ -226,7 +226,7 @@ def op_contexto(doc, args):
                 pass
     finally:
         ss.Delete()
-    return {"ok": True, "anfitrion": host, "muros": muros[:MAX_SEGMENTOS], "n_muros": len(muros), "existentes": existentes,
+    return {"ok": True, "plano": str(doc.Name), "anfitrion": host, "muros": muros[:MAX_SEGMENTOS], "n_muros": len(muros), "existentes": existentes,
             "objetos_en_modelo": int(doc.ModelSpace.Count)}
 
 

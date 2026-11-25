@@ -498,7 +498,8 @@ def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = F
 
 @mcp.tool()
 def perfil_proyecto(accion: str = "ver", bloque: str | None = None, rol: str | None = None, nombre: str | None = None,
-                    tipo: str | None = None, x: float | None = None, y: float | None = None, tipologia: str | None = None) -> dict:
+                    tipo: str | None = None, x: float | None = None, y: float | None = None, tipologia: str | None = None,
+                    atributos: dict | None = None) -> dict:
     """Perfil del PROYECTO ACTIVO: lo que es propio de este plano y el escaner no puede adivinar. Solo escribe un JSON local (perfiles/),
     no toca el dibujo. Acciones:
     - 'ver': muestra el perfil y los roles disponibles.
@@ -506,6 +507,10 @@ def perfil_proyecto(accion: str = "ver", bloque: str | None = None, rol: str | N
     - 'ignorar': bloque -> el escaner lo descarta (puertas, vegetacion, marcos...).
     - 'zona': nombre + tipo + x + y -> agrega una zona manual (ej. un espacio sin texto ni poligono).
     - 'tipologia': tipologia -> fija el tipo de proyecto (vivienda, oficina, hotel, comercial, restaurante, salud, educacion, industrial).
+    - 'atributos': bloque + atributos={...} -> RECUERDA lo que el usuario ya respondio sobre un bloque para no volver a preguntarlo
+      (cabecera "N"/"S"/"E"/"O" de una cama, ancho_cama en m, filas, puntos [[x,y],...] exactos, etc.). Se fusiona con lo existente; un valor
+      null borra esa clave; atributos={} borra todos los del bloque. escanear_zonas los devuelve en cada mueble y ubicar_en_anfitrion
+      los usa solos como valores por defecto.
     """
     est = acad.estado(timeout_s=float(CFG.get("autocad", {}).get("timeout_s", 10)))
     if not est.get("ok"):
@@ -535,12 +540,30 @@ def perfil_proyecto(accion: str = "ver", bloque: str | None = None, rol: str | N
         if not nombre or x is None or y is None:
             return {"ok": False, "error": "faltan_datos", "detalle": "Una zona manual necesita nombre, x e y (y opcionalmente tipo)."}
         perfil["zonas_manuales"] = [z for z in perfil["zonas_manuales"] if z["nombre"] != nombre] + [{"nombre": nombre, "tipo": tipo or "otro", "x": x, "y": y}]
+    elif accion == "atributos":
+        if not bloque or not isinstance(atributos, dict):
+            return {"ok": False, "error": "faltan_datos", "detalle": "Indica bloque y atributos={clave: valor}."}
+        guardados = perfil.setdefault("atributos_bloques", {})
+        clave = next((k for k in guardados if k.casefold() == bloque.casefold()), bloque)
+        if not atributos:
+            guardados.pop(clave, None)
+        else:
+            actuales = dict(guardados.get(clave, {}))
+            for k, v in atributos.items():
+                if v is None:
+                    actuales.pop(k, None)
+                else:
+                    actuales[k] = v
+            if actuales:
+                guardados[clave] = actuales
+            else:
+                guardados.pop(clave, None)
     elif accion == "tipologia":
         if tipologia not in VOCAB.tipologias:
             return {"ok": False, "error": "tipologia_desconocida", "detalle": f"Opciones: {', '.join(VOCAB.tipologias)}."}
         perfil["tipologia"] = tipologia
     else:
-        return {"ok": False, "error": "accion_desconocida", "detalle": "Acciones: ver, rol, ignorar, zona, tipologia."}
+        return {"ok": False, "error": "accion_desconocida", "detalle": "Acciones: ver, rol, ignorar, zona, atributos, tipologia."}
     zonas_motor.guardar_perfil(CARPETA_PERFILES, dibujo, perfil)
     return {"ok": True, "perfil": perfil, "aviso": "Perfil guardado. Vuelve a llamar escanear_zonas: la cache se renueva sola."}
 
@@ -731,6 +754,10 @@ def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccio
     if not ctx.get("ok"):
         return ctx
     host = ctx["anfitrion"]
+    guardado = {}
+    if ctx.get("plano"):
+        guardado = zonas_motor.atributos_de(zonas_motor.cargar_perfil(CARPETA_PERFILES, ctx["plano"]), host["nombre"])
+    opciones = {**{k: v for k, v in guardado.items() if k in motor_ubicacion.OPCIONES_DEL_PERFIL}, **(opciones or {})}   # lo explicito manda
     try:
         plan, avisos = motor_ubicacion.planear(receta, host, opciones, muros=[tuple(m) for m in ctx.get("muros", [])])
     except motor_ubicacion.ErrorUbicacion as e:
@@ -739,6 +766,7 @@ def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccio
     nuevas, omitidas = motor_ubicacion.sin_duplicados(plan, ctx.get("existentes", []))
     resumen = {"ok": True, "receta": receta, "anfitrion": {k: host[k] for k in ("nombre", "x0", "y0", "x1", "y1", "w", "h")},
                "muros_cercanos": ctx.get("n_muros", 0), "a_colocar": len(nuevas), "ya_colocadas_omitidas": len(omitidas),
+               "opciones_del_perfil": {k: v for k, v in guardado.items() if k in motor_ubicacion.OPCIONES_DEL_PERFIL} or None,
                "colocaciones": nuevas, "omitidas": omitidas, "avisos": avisos}
     if not nuevas:
         return {**resumen, "aviso": "Todo lo de esta receta ya esta colocado: no se hizo nada."}

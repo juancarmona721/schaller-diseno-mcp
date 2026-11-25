@@ -327,7 +327,36 @@ def receta_pared_frente(host: dict, op: dict) -> tuple[list, list]:
     return plan, []
 
 
+def receta_en_puntos(host: dict, op: dict) -> tuple[list, list]:
+    """Un producto en cada punto EXACTO [[x, y], ...]: los puntos confirmados por el usuario (guardados en el perfil del proyecto) o dados a mano.
+
+    Opciones: producto, puntos, rotacion_grados (0), apuntar_a [x, y] (para productos direccionales: cada uno se gira hacia ese punto).
+    No calcula nada del anfitrion: sirve cuando la posicion ya se conoce (compartimento de un bano, poceta, proyectores de una sala).
+    """
+    prod = op.get("producto")
+    puntos = op.get("puntos")
+    if not prod or not puntos:
+        raise ErrorUbicacion("receta 'en_puntos' necesita producto y puntos [[x, y], ...]; si el anfitrion los tiene en su perfil, "
+                             "usalos (atributos del escaner) en vez de preguntar.")
+    clave = ALIAS_PRODUCTOS.get(str(prod).strip().lower(), str(prod).strip().lower())
+    rot0 = math.radians(float(op.get("rotacion_grados", 0)))
+    objetivo = op.get("apuntar_a")
+    plan = []
+    for p in puntos:
+        try:
+            x, y = float(p[0]), float(p[1])
+        except (TypeError, ValueError, IndexError):
+            raise ErrorUbicacion(f"punto invalido {p!r}: cada punto debe ser [x, y].")
+        rot = rot_para_apuntar(clave, float(objetivo[0]) - x, float(objetivo[1]) - y) if objetivo else rot0
+        plan.append(colocacion(prod, x, y, rot, bool(op.get("etiquetar", True)), "en punto indicado"))
+    return plan, []
+
+
+# Atributos del perfil del proyecto que actuan como opciones por defecto de una receta (lo que se paso explicitamente tiene prioridad).
+OPCIONES_DEL_PERFIL = {"cabecera", "ancho_cama", "filas", "margen_lateral", "margen_pies", "u_pies", "puntos"}
+
 RECETAS = {
+    "en_puntos": (receta_en_puntos, "Producto en puntos exactos [[x,y],...] (confirmados en el perfil o dados a mano); opcional apuntar_a o rotacion_grados."),
     "pared_frente": (receta_pared_frente, "Parlantes de pared en el primer muro que mira el anfitrion (rayo), orientados hacia el. Requiere muros."),
     "cama": (receta_cama, "Tira Durastrip en la cabecera + 6 CCTEvo (2 filas laterales + 2 a los pies). Requiere cabecera N/S/E/O."),
     "centro": (receta_centro, "1 producto centrado en el anfitrion (suspension sobre mesa, parlante de bano/estar). Requiere producto."),
