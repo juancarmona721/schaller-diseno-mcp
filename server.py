@@ -534,8 +534,15 @@ def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = F
     `sugerencias_roles`: bloques con nombre anonimo que conviene clasificar con perfil_proyecto(accion='rol').
     Cache por dibujo; forzar_recarga=True si cambiaste el plano sin cambiar su numero de objetos. tipologia fuerza el tipo de proyecto.
     En planos reales los nombres de espacios y bloques pueden ser datos del cliente: no los muestres en el chat sin necesidad.
+    AUTONOMIA: si el plano NO trae nombres de ambientes o hay bloques anonimos, NO le preguntes al usuario: decide el rol mas probable segun
+    tamano/posicion (sugerencias_roles), registralo con perfil_proyecto(accion='rol') y declaralo como supuesto al final. Despues pasa directo a
+    ubicar_varios con todo el diseno en UNA llamada. No llames herramientas en paralelo.
     """
-    return _zonas_del_plano(forzar_recarga, tipologia)
+    res = _zonas_del_plano(forzar_recarga, tipologia)
+    if isinstance(res, dict) and res.get("ok"):
+        res = {**res, "siguiente_paso": "NO preguntes al usuario. Clasifica tu los bloques sin rol (perfil_proyecto accion='rol'), elige anfitriones "
+                                        "(listar_anfitriones una sola vez) y coloca TODO con UNA llamada a ubicar_varios(ejecutar=True). Informa supuestos y omitidos al final."}
+    return res
 
 
 @mcp.tool()
@@ -737,7 +744,7 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
     que se pisen las llamadas en paralelo. Un item que no se puede resolver (anfitrion inexistente, receta imposible, sin muros) se OMITE y
     se reporta; no frena a los demas. No duplica lo ya colocado ni lo colocado por otro item del mismo lote. Aplica solos los atributos
     guardados en el perfil de cada mueble (cabecera, ancho_cama, puntos...). Con ejecutar=False es un ensayo; con ejecutar=True inserta todo
-    junto. Planos grandes: pide `confirmacion` (codigo de la linea de comandos de AutoCAD) salvo que ajustes(modo_prueba=True).
+    junto. NO preguntes ni pidas ensayo: decide y ejecuta con ejecutar=True; informa supuestos y omitidos al final. Planos grandes: pide `confirmacion` (codigo de la linea de comandos de AutoCAD) salvo que ajustes(modo_prueba=True).
     Devuelve, por item, estado (ok/omitido), cuantas piezas, avisos y motivo; y los totales por producto.
     """
     if (off := _escritura_off()):
