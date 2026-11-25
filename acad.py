@@ -7,6 +7,7 @@ Dos limites: `timeout_s` (AutoCAD responde, 10 s) y `timeout_lectura_s` (lectura
 import json
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
@@ -24,7 +25,18 @@ PROBE_INTENCIONES = AQUI / "sondas" / "sonda_intenciones.py"
 PROBE_DISENO = AQUI / "sondas" / "sonda_diseno.py"
 
 
+# UN solo acceso a AutoCAD a la vez. Claude Desktop lanza varias herramientas EN PARALELO; cada una abre su propio proceso contra el mismo
+# AutoCAD y, sin esto, se pisan (conjuntos de seleccion borrados, "llamada rechazada"): 5 de 6 llamadas fallaban. Es un RLock: una operacion
+# de varios pasos (leer contexto + insertar) puede tomarlo entera y sus pasos internos lo re-toman sin bloquearse.
+LOCK = threading.RLock()
+
+
 def _correr(script: Path, timeout_s: float, argumentos=None, mensaje_timeout: str | None = None) -> dict:
+    with LOCK:
+        return _correr_sin_candado(script, timeout_s, argumentos, mensaje_timeout)
+
+
+def _correr_sin_candado(script: Path, timeout_s: float, argumentos=None, mensaje_timeout: str | None = None) -> dict:
     try:
         r = subprocess.run(
             [sys.executable, "-I", str(script), *(argumentos or [])],

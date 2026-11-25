@@ -60,6 +60,7 @@ def _filtro(tipos_dxf, valores):
 
 def _conjunto(doc, nombre, modo, p1, p2, tipos, valores):
     """Conjunto de seleccion temporal (se borra al terminar). modo 5 = todo el dibujo, 1 = cruzando la ventana p1-p2."""
+    nombre = f"{nombre}_{os.getpid()}"       # unico por proceso: varios procesos a la vez no se pisan
     try:
         doc.SelectionSets.Item(nombre).Delete()
     except Exception:
@@ -228,6 +229,85 @@ def op_contexto(doc, args):
         ss.Delete()
     return {"ok": True, "plano": str(doc.Name), "anfitrion": host, "muros": muros[:MAX_SEGMENTOS], "n_muros": len(muros), "existentes": existentes,
             "objetos_en_modelo": int(doc.ModelSpace.Count)}
+
+
+def op_contexto_varios(doc, args):
+    """Contexto de VARIOS anfitriones leyendo el plano UNA sola vez (anfitriones, muros cercanos a cualquiera de ellos y lo ya colocado).
+
+    args: {"anfitriones": [{"nombre": s, "cerca_de": [x, y]|null}, ...], "radio_muros": n, "bloques_bbox": [...]}.
+    Devuelve "hosts" en el mismo orden: cada uno con "host" o con "error" (un anfitrion que falla no frena a los demas).
+    Es la diferencia entre ~4 s POR ubicacion (cada llamada releia los 400+ bloques) y ~5 s por TODO el diseno.
+    """
+    pedidos = args.get("anfitriones") or []
+    bbox_blk = set(args.get("bloques_bbox") or [])
+    por_nombre, existentes = {}, []
+    ss, ents = _inserts(doc)
+    try:
+        for e in ents:
+            try:
+                capa, n = str(e.Layer), str(e.EffectiveName)
+            except Exception:
+                continue
+            if capa in CAPAS_SCH:
+                try:
+                    if n in bbox_blk:
+                        a = _bbox(e)
+                        x, y = (a[0] + a[2]) / 2, (a[1] + a[3]) / 2
+                    else:
+                        p = e.InsertionPoint
+                        x, y = p[0], p[1]
+                    existentes.append({"bloque": n, "x": round(x, 3), "y": round(y, 3)})
+                except Exception:
+                    pass
+            else:
+                por_nombre.setdefault(n.casefold(), []).append(e)
+    finally:
+        ss.Delete()
+
+    resultados, ventanas, cache = [], [], {}
+    r = float(args.get("radio_muros") or 8.0)
+    for ped in pedidos:
+        nombre = (ped.get("nombre") or "").strip()
+        centro = ped.get("cerca_de")
+        clave = (nombre.casefold(), tuple(centro) if centro else None)
+        if clave not in cache:
+            cand = por_nombre.get(nombre.casefold(), [])
+            if not nombre:
+                cache[clave] = {"error": "falta_anfitrion", "detalle": "Falta el nombre del bloque anfitrion."}
+            elif not cand:
+                cache[clave] = {"error": "anfitrion_no_encontrado", "detalle": f"No hay ningun bloque llamado '{nombre}'. Usa listar_anfitriones."}
+            else:
+                if len(cand) > 1:
+                    if not centro:
+                        cache[clave] = {"error": "anfitrion_ambiguo", "detalle": f"Hay {len(cand)} bloques '{nombre}': indica cerca_de=[x, y].",
+                                        "candidatos": [_host_dict(c) for c in cand[:6]]}
+                        cand = []
+                    else:
+                        cand.sort(key=lambda c: math.hypot((_bbox(c)[0] + _bbox(c)[2]) / 2 - centro[0], (_bbox(c)[1] + _bbox(c)[3]) / 2 - centro[1]))
+                if cand:
+                    h = _host_dict(cand[0])
+                    cache[clave] = {"host": h}
+                    ventanas.append((h["x0"] - r, h["y0"] - r, h["x1"] + r, h["y1"] + r))
+        resultados.append({"nombre": nombre, **cache[clave]})
+
+    muros = []
+    ss = _conjunto(doc, "SS_DISENO_MURV", 5, None, None, [0, 8], ["LINE,LWPOLYLINE,POLYLINE", FILTRO_MUROS])
+    try:
+        for i in range(ss.Count):
+            if len(muros) >= MAX_SEGMENTOS or not ventanas:
+                break
+            try:
+                e = ss.Item(i)
+                a = _bbox(e)
+                if not any(not (a[2] < w[0] or a[0] > w[2] or a[3] < w[1] or a[1] > w[3]) for w in ventanas):
+                    continue
+                muros += [[round(v, 4) for v in s] for s in _segmentos(e)]
+            except Exception:
+                pass
+    finally:
+        ss.Delete()
+    return {"ok": True, "plano": str(doc.Name), "hosts": resultados, "muros": muros[:MAX_SEGMENTOS], "n_muros": len(muros),
+            "existentes": existentes, "objetos_en_modelo": int(doc.ModelSpace.Count)}
 
 
 def _copiar_definicion(origen, destino, nombre):
@@ -446,6 +526,8 @@ def main():
             return reintentar(lambda: op_anfitriones(doc, args))     # lecturas: se pueden repetir sin riesgo
         if op == "contexto":
             return reintentar(lambda: op_contexto(doc, args))
+        if op == "contexto_varios":
+            return reintentar(lambda: op_contexto_varios(doc, args))
         if op == "insertar":
             return op_insertar(acad, doc, args)
         if op == "quitar":

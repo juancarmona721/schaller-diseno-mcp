@@ -48,6 +48,7 @@ def _filtro(tipos, valores):
 
 
 def _seleccion(doc, nombre, dxf):
+    nombre = f"{nombre}_{os.getpid()}"       # unico por proceso: varios procesos a la vez no se pisan
     try:
         doc.SelectionSets.Item(nombre).Delete()
     except Exception:

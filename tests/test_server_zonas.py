@@ -210,10 +210,182 @@ def test_en_puntos_con_los_puntos_del_perfil_no_necesita_preguntar_nada(autocad,
     assert r["ok"] and [(c["x"], c["y"]) for c in r["colocaciones"]] == [(4242.38, 1466.32)]
 
 
-def test_la_guia_manda_actuar_y_no_interrogar():
+def test_la_guia_manda_autonomia_velocidad_y_pocas_preguntas():
     import guia_diseno
     g = guia_diseno.FLUJO
-    for frase in ("ACTUA, NO INTERROGUES", "SUPUESTOS", "UN mensaje", "perfil_proyecto(accion=\"atributos\")", "en_puntos", "UNA aprobacion"):
+    for frase in ("AUTONOMIA", "EJECUTA directamente", "SUPUESTOS", "ubicar_varios", "UNA sola llamada", "NO llames a las herramientas en paralelo",
+                  'perfil_proyecto(accion="atributos")', "en_puntos", "modo_prueba"):
         assert frase in g, frase
-    assert "pregunta SOLO" in g.lower() or "Pregunta SOLO" in g
-    assert "pregúntamelo" not in g.lower() and "pregunta n/s/e/o" not in g.lower()           # la vieja politica ya no esta
+    assert "Pregunta SOLO" in g
+    assert "pregúntamelo" not in g.lower() and "UNA aprobacion" not in g and "no pidas ensayo previo" in g      # ya no exige ensayo ni aprobacion
+
+
+# ------------------------------------------------------------------------------------------------ concurrencia (llamadas en paralelo)
+def test_las_llamadas_a_autocad_en_paralelo_se_ejecutan_de_una_en_una(monkeypatch):
+    # Causa real de "Selection Set was deleted": Claude Desktop lanza varias herramientas a la vez y se pisaban en AutoCAD.
+    import subprocess
+    import threading
+    import time
+    import acad
+    dentro, maximo, lock = [0], [0], threading.Lock()
+
+    class R:
+        stdout = '{"ok": true}'
+        stderr = ""
+
+    def falso_run(*a, **kw):
+        with lock:
+            dentro[0] += 1
+            maximo[0] = max(maximo[0], dentro[0])
+        time.sleep(0.05)
+        with lock:
+            dentro[0] -= 1
+        return R()
+    monkeypatch.setattr(subprocess, "run", falso_run)
+    hilos = [threading.Thread(target=lambda: acad._correr(acad.PROBE_ESTADO, 5)) for _ in range(8)]
+    [h.start() for h in hilos]
+    [h.join() for h in hilos]
+    assert maximo[0] == 1
+
+
+def test_una_operacion_de_varios_pasos_no_se_intercala_con_otra(autocad, monkeypatch):
+    import threading
+    import time
+    orden = []
+
+    def diseno(args, **kw):
+        orden.append((threading.current_thread().name, args["op"]))
+        time.sleep(0.03)
+        if args["op"] == "contexto":
+            return {"ok": True, "plano": "Oficina_A.dwg", "muros": [], "n_muros": 0, "existentes": [],
+                    "anfitrion": {"nombre": "M", "x0": 0, "y0": 0, "x1": 2, "y1": 1, "w": 2, "h": 1}}
+        return {"ok": True, "ejecutado": False, "colocaciones": 1}
+    monkeypatch.setattr(server.acad, "diseno", diseno)
+    hilos = [threading.Thread(name=f"h{i}", target=lambda: server.ubicar_en_anfitrion(receta="centro", anfitrion="M", opciones={"producto": "ci160"})) for i in range(4)]
+    [h.start() for h in hilos]
+    [h.join() for h in hilos]
+    for i in range(0, len(orden), 2):
+        assert orden[i][0] == orden[i + 1][0] and orden[i][1] == "contexto" and orden[i + 1][1] == "insertar"   # contexto e insertar, juntos
+
+
+def test_los_conjuntos_de_seleccion_son_unicos_por_proceso():
+    import os
+    from pathlib import Path
+    for f in ("sondas/sonda_diseno.py", "sondas/sonda_zonas.py"):
+        src = (Path(__file__).resolve().parent.parent / f).read_text(encoding="utf-8")
+        assert 'nombre = f"{nombre}_{os.getpid()}"' in src, f
+
+
+# ------------------------------------------------------------------------------------------------ ubicar_varios (todo el diseno en una llamada)
+def _ctx_varios(hosts, existentes=None, muros=None):
+    return {"ok": True, "plano": "Oficina_A.dwg", "hosts": hosts, "muros": muros or [], "n_muros": len(muros or []), "existentes": existentes or [],
+            "objetos_en_modelo": 100}
+
+
+H1 = {"nombre": "Cama X", "x0": 0, "y0": 0, "x1": 2.1, "y1": 2.4, "w": 2.1, "h": 2.4}
+H2 = {"nombre": "Mesa Y", "x0": 10, "y0": 0, "x1": 13.6, "y1": 1.2, "w": 3.6, "h": 1.2}
+
+
+def test_ubicar_varios_resuelve_todo_en_dos_llamadas_a_autocad_y_omite_sin_frenar(autocad, monkeypatch):
+    llamadas = []
+
+    def diseno(args, **kw):
+        llamadas.append(args)
+        if args["op"] == "contexto_varios":
+            return _ctx_varios([{"nombre": "Cama X", "host": H1}, {"nombre": "Mesa Y", "host": H2},
+                                {"nombre": "No existe", "error": "anfitrion_no_encontrado", "detalle": "No hay ningun bloque llamado 'No existe'."},
+                                {"nombre": "Mesa Y", "host": H2}])
+        return {"ok": True, "ejecutado": args["ejecutar"], "insertados": len(args["colocaciones"])}
+    monkeypatch.setattr(server.acad, "diseno", diseno)
+    items = [{"receta": "cama", "anfitrion": "Cama X", "opciones": {"cabecera": "N"}},
+             {"receta": "centro", "anfitrion": "Mesa Y", "opciones": {"producto": "simbiosis"}},
+             {"receta": "centro", "anfitrion": "No existe", "opciones": {"producto": "ci160"}},
+             {"receta": "inventada", "anfitrion": "Mesa Y"}]
+    r = server.ubicar_varios(items, ejecutar=True)
+    assert [x["op"] for x in llamadas] == ["contexto_varios", "insertar"]            # el plano se lee UNA vez y se inserta UNA vez
+    assert r["ok"] and r["a_colocar"] == 8 and r["por_producto"] == {"durastrip_ip68": 1, "cctevo58": 6, "simbiosis": 1}
+    assert [d["estado"] for d in r["items"]] == ["ok", "ok", "omitido", "omitido"]
+    assert {o["anfitrion"] for o in r["omitidos"]} == {"No existe", "Mesa Y"} and llamadas[1]["ejecutar"] is True and len(llamadas[1]["colocaciones"]) == 8
+    assert r["insercion"]["insertados"] == 8 and "aviso" not in r
+
+
+def test_ubicar_varios_en_ensayo_no_escribe_y_no_duplica_dentro_del_lote(autocad, monkeypatch):
+    llamadas = []
+
+    def diseno(args, **kw):
+        llamadas.append(args)
+        if args["op"] == "contexto_varios":
+            return _ctx_varios([{"nombre": "Mesa Y", "host": H2}, {"nombre": "Mesa Y", "host": H2}])
+        return {"ok": True, "ejecutado": False, "insertados": None}
+    monkeypatch.setattr(server.acad, "diseno", diseno)
+    r = server.ubicar_varios([{"receta": "centro", "anfitrion": "Mesa Y", "opciones": {"producto": "ci160"}}] * 2, ejecutar=False)
+    assert r["a_colocar"] == 1 and [d["a_colocar"] for d in r["items"]] == [1, 0] and r["items"][1]["ya_colocadas"] == 1   # el 2.o ya estaba en el lote
+    assert llamadas[1]["ejecutar"] is False and "ENSAYO" in r["aviso"]
+
+
+def test_ubicar_varios_usa_el_perfil_y_lo_ya_colocado(autocad, monkeypatch):
+    server.perfil_proyecto("atributos", bloque="Cama X", atributos={"cabecera": "N", "ancho_cama": 2.0})
+    previo = [{"bloque": "Durastrip IP68_45W_Targetti", "x": 1.05, "y": 2.35}]            # la tira ya estaba puesta
+
+    def diseno(args, **kw):
+        if args["op"] == "contexto_varios":
+            return _ctx_varios([{"nombre": "Cama X", "host": H1}], existentes=previo)
+        return {"ok": True, "ejecutado": False}
+    monkeypatch.setattr(server.acad, "diseno", diseno)
+    r = server.ubicar_varios([{"receta": "cama", "anfitrion": "Cama X"}], ejecutar=False)
+    d = r["items"][0]
+    assert d["opciones_del_perfil"] == {"cabecera": "N", "ancho_cama": 2.0} and d["a_colocar"] == 6 and d["ya_colocadas"] == 1
+
+
+def test_ubicar_varios_valida_la_entrada_y_respeta_el_interruptor_de_escritura(autocad, monkeypatch):
+    assert server.ubicar_varios([])["error"] == "items_invalidos" and server.ubicar_varios("x")["error"] == "items_invalidos"
+    monkeypatch.setattr(server, "CFG", {**server.CFG, "escritura": {"habilitada": False}})
+    assert server.ubicar_varios([{"receta": "cama", "anfitrion": "X"}])["error"] == "escritura_desactivada"
+
+
+# ------------------------------------------------------------------------------------------------ ajustes y registro de uso
+def test_modo_prueba_quita_el_codigo_de_confirmacion_y_se_puede_revertir(monkeypatch, tmp_path):
+    monkeypatch.setattr(server, "RUTA_AJUSTES", tmp_path / "ajustes.json")
+    assert server._max_objetos() == 300 and server.ajustes()["candado_de_planos_grandes"] == "activo"
+    r = server.ajustes(modo_prueba=True)
+    assert r["ajustes"] == {"modo_prueba": True} and "DESACTIVADO" in r["candado_de_planos_grandes"] and server._max_objetos() > 10 ** 6
+    assert server.ajustes(modo_prueba=False)["candado_de_planos_grandes"] == "activo" and server._max_objetos() == 300
+
+
+def test_modo_prueba_llega_a_la_insercion(autocad, monkeypatch, tmp_path):
+    monkeypatch.setattr(server, "RUTA_AJUSTES", tmp_path / "ajustes.json")
+    server.ajustes(modo_prueba=True)
+    vistos = []
+
+    def diseno(args, **kw):
+        vistos.append(args)
+        if args["op"] == "contexto_varios":
+            return _ctx_varios([{"nombre": "Mesa Y", "host": H2}])
+        return {"ok": True, "ejecutado": True, "insertados": 1}
+    monkeypatch.setattr(server.acad, "diseno", diseno)
+    server.ubicar_varios([{"receta": "centro", "anfitrion": "Mesa Y", "opciones": {"producto": "ci160"}}], ejecutar=True)
+    assert vistos[-1]["max_objetos"] > 10 ** 6                      # el candado no se activa: AutoCAD no pedira codigo
+
+
+def test_cada_llamada_queda_registrada_con_su_duracion_y_ver_uso_la_resume(monkeypatch, tmp_path):
+    import asyncio
+    monkeypatch.setattr(server, "RUTA_USO", tmp_path / "logs" / "uso.jsonl")
+    asyncio.run(server.mcp.call_tool("catalogo_ubicacion", {}))
+    asyncio.run(server.mcp.call_tool("catalogo_ubicacion", {}))
+    r = server.ver_uso()
+    assert r["llamadas"] == 2 and r["por_herramienta"]["catalogo_ubicacion"]["n"] == 2 and r["por_herramienta"]["catalogo_ubicacion"]["fallos"] == 0
+    assert r["recientes"][0]["ms"] >= 0 and r["recientes"][0]["herramienta"] == "catalogo_ubicacion"
+
+
+def test_el_registro_marca_como_fallo_lo_que_devuelve_ok_false(monkeypatch, tmp_path):
+    import asyncio
+    monkeypatch.setattr(server, "RUTA_USO", tmp_path / "uso.jsonl")
+    monkeypatch.setattr(server.acad, "diseno", lambda args, **kw: {"ok": False, "error": "sin_dibujo"})
+    asyncio.run(server.mcp.call_tool("ubicar_varios", {"items": [{"receta": "cama", "anfitrion": "X"}]}))
+    r = server.ver_uso()
+    assert r["por_herramienta"]["ubicar_varios"]["fallos"] == 1 and r["recientes"][-1]["error"] == "sin_dibujo"
+
+
+def test_ver_uso_sin_registro_no_falla(monkeypatch, tmp_path):
+    monkeypatch.setattr(server, "RUTA_USO", tmp_path / "no_existe.jsonl")
+    assert server.ver_uso() == {"ok": True, "llamadas": 0, "detalle": "Todavia no hay registro de uso."}

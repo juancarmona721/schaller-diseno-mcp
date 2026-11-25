@@ -1,6 +1,8 @@
 """diseno-mcp: servidor MCP interno para el equipo de diseno. Por ahora, todo es de SOLO LECTURA."""
+import functools
 import json
 import math
+import time
 import os
 import tomllib
 from pathlib import Path
@@ -25,6 +27,45 @@ def cargar_config() -> dict:
 
 
 CFG = cargar_config()
+
+# Ajustes y registro de uso: en la carpeta del usuario, compartidos por cualquier copia del MCP (como los perfiles).
+_RAIZ_USUARIO = Path.home() / ".schaller-diseno"
+RUTA_AJUSTES = Path(os.environ.get("SCHALLER_AJUSTES") or _RAIZ_USUARIO / "ajustes.json")
+RUTA_USO = Path(os.environ.get("SCHALLER_USO") or _RAIZ_USUARIO / "logs" / "uso.jsonl")
+
+
+def _ajustes() -> dict:
+    try:
+        return json.loads(RUTA_AJUSTES.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _max_objetos() -> int:
+    """Umbral del candado de planos grandes. En modo_prueba no se pide codigo."""
+    return 10 ** 9 if _ajustes().get("modo_prueba") else int(CFG.get("escritura", {}).get("max_objetos_dibujo", 300))
+
+
+def _registrar_uso(nombre: str, argumentos, ms: float, ok: bool, error=None) -> None:
+    """Una linea por llamada: herramienta, duracion, resultado y un resumen CORTO de los argumentos. Nunca rompe la herramienta."""
+    try:
+        resumen = {k: (str(v)[:60]) for k, v in (argumentos or {}).items()}
+        RUTA_USO.parent.mkdir(parents=True, exist_ok=True)
+        with open(RUTA_USO, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "herramienta": nombre, "ms": int(ms), "ok": ok,
+                                 "error": error, "args": resumen}, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _serializado(fn):
+    """Una herramienta que toca AutoCAD se ejecuta ENTERA antes de que empiece otra (Claude Desktop las lanza en paralelo y se pisaban)."""
+    @functools.wraps(fn)
+    def envuelta(*args, **kwargs):
+        with acad.LOCK:
+            return fn(*args, **kwargs)
+    return envuelta
+
 mcp = FastMCP("diseno-mcp", instructions=guia_diseno.instrucciones(referencias.REGLA))
 REF_JSON = AQUI / "referencias_finales.json"
 
@@ -481,6 +522,7 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
 
 
 @mcp.tool()
+@_serializado
 def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = False, tipologia: str | None = None) -> dict:
     """SOLO LECTURA: detecta zonas/espacios del plano ACTIVO para CUALQUIER tipo de proyecto (vivienda, oficina, hotel, comercial,
     restaurante, salud, educacion, industrial). Se adapta al plano en vez de asumir una casa.
@@ -686,6 +728,114 @@ def ubicar_en_seleccion(intencion: str, ejecutar: bool = True) -> dict:
 # UBICACION POR ANFITRION (geometria real, sin coordenadas fijas): listar_anfitriones -> ubicar_en_anfitrion
 # ---------------------------------------------------------------------------------------------------------------------
 @mcp.tool()
+@_serializado
+def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str | None = None) -> dict:
+    """UBICA TODO UN DISENO EN UNA SOLA LLAMADA (rapido): varias ubicaciones sobre varios anfitriones, leyendo el plano UNA vez.
+
+    items = [{"receta": ..., "anfitrion": "<bloque>", "opciones": {...}?, "cerca_de": [x, y]?}, ...]; mismas recetas y opciones que
+    ubicar_en_anfitrion. Es ~10 veces mas rapido que llamar a ubicar_en_anfitrion una por una (cada una releia el plano entero) y no deja
+    que se pisen las llamadas en paralelo. Un item que no se puede resolver (anfitrion inexistente, receta imposible, sin muros) se OMITE y
+    se reporta; no frena a los demas. No duplica lo ya colocado ni lo colocado por otro item del mismo lote. Aplica solos los atributos
+    guardados en el perfil de cada mueble (cabecera, ancho_cama, puntos...). Con ejecutar=False es un ensayo; con ejecutar=True inserta todo
+    junto. Planos grandes: pide `confirmacion` (codigo de la linea de comandos de AutoCAD) salvo que ajustes(modo_prueba=True).
+    Devuelve, por item, estado (ok/omitido), cuantas piezas, avisos y motivo; y los totales por producto.
+    """
+    if (off := _escritura_off()):
+        return off
+    if not isinstance(items, list) or not items:
+        return {"ok": False, "error": "items_invalidos", "detalle": "Pasa una lista de items [{receta, anfitrion, opciones?}]."}
+    t = _diseno_tiempos()
+    bbox_blk = [v["bloque"] for v in motor_ubicacion.PRODUCTOS.values() if v.get("ancla") == "bbox"]
+    ped = [{"nombre": it.get("anfitrion") if isinstance(it, dict) else None, "cerca_de": it.get("cerca_de") if isinstance(it, dict) else None}
+           for it in items]
+    ctx = acad.diseno({"op": "contexto_varios", "anfitriones": ped, "bloques_bbox": bbox_blk}, **t)
+    if not ctx.get("ok"):
+        return ctx
+    perfil = zonas_motor.cargar_perfil(CARPETA_PERFILES, ctx["plano"]) if ctx.get("plano") else zonas_motor.perfil_vacio()
+    muros = [tuple(m) for m in ctx.get("muros", [])]
+    existentes = list(ctx.get("existentes", []))
+    todas, detalle = [], []
+    for it, h in zip(items, ctx.get("hosts", [])):
+        r = {"receta": it.get("receta") if isinstance(it, dict) else None, "anfitrion": h.get("nombre")}
+        if not isinstance(it, dict) or it.get("receta") not in motor_ubicacion.RECETAS:
+            detalle.append({**r, "estado": "omitido", "error": "receta_desconocida", "detalle": f"Recetas: {', '.join(motor_ubicacion.RECETAS)}."})
+            continue
+        if "error" in h:
+            detalle.append({**r, "estado": "omitido", "error": h["error"], "detalle": h["detalle"]})
+            continue
+        host = h["host"]
+        guardado = {k: v for k, v in zonas_motor.atributos_de(perfil, host["nombre"]).items() if k in motor_ubicacion.OPCIONES_DEL_PERFIL}
+        try:
+            plan, avisos = motor_ubicacion.planear(it["receta"], host, {**guardado, **(it.get("opciones") or {})}, muros=muros)
+        except motor_ubicacion.ErrorUbicacion as e:
+            detalle.append({**r, "estado": "omitido", "error": "no_se_puede_ubicar", "detalle": str(e)})
+            continue
+        nuevas, omitidas = motor_ubicacion.sin_duplicados(plan, existentes)
+        existentes += [{"bloque": c["bloque"], "x": c["x"], "y": c["y"]} for c in nuevas]      # tambien contra lo del propio lote
+        todas += nuevas
+        detalle.append({**r, "estado": "ok", "a_colocar": len(nuevas), "ya_colocadas": len(omitidas), "avisos": avisos or None,
+                        "opciones_del_perfil": guardado or None,
+                        "piezas": [[c["producto"], c["x"], c["y"], round(c["rot"], 3)] for c in nuevas]})
+    por_producto = {}
+    for c in todas:
+        por_producto[c["producto"]] = por_producto.get(c["producto"], 0) + 1
+    omitidos = [d for d in detalle if d["estado"] == "omitido"]
+    resumen = {"ok": True, "items": detalle, "a_colocar": len(todas), "por_producto": por_producto,
+               "con_rotulo": sum(1 for c in todas if c.get("etiqueta")), "omitidos": [{"anfitrion": d["anfitrion"], "receta": d["receta"],
+                                                                                        "motivo": d["detalle"]} for d in omitidos]}
+    if not todas:
+        return {**resumen, "aviso": "No hay nada nuevo que colocar (todo ya estaba puesto o se omitio)."}
+    if len(todas) > 400:
+        return {**resumen, "ok": False, "error": "demasiados_objetos", "detalle": "Mas de 400 piezas en una llamada: divide el lote."}
+    r = acad.diseno({"op": "insertar", "colocaciones": todas, "ejecutar": bool(ejecutar), "confirmacion": confirmacion,
+                     "max_objetos": _max_objetos()}, **t)
+    if not r.get("ok"):
+        return {**resumen, **r, "ok": False}
+    aviso = {} if ejecutar else {"aviso": "ENSAYO: no se modifico nada. Repite con ejecutar=True para colocarlo todo."}
+    return {**resumen, "insercion": {k: r.get(k) for k in ("insertados", "avisos", "bloques_importados", "escalas_aplicadas", "desviacion_max_m") if r.get(k)}, **aviso}
+
+
+@mcp.tool()
+def ajustes(modo_prueba: bool | None = None) -> dict:
+    """Ajustes locales del MCP (se guardan en el PC del usuario). Sin argumentos, muestra los actuales.
+
+    modo_prueba=True: en planos grandes NO pide el codigo de confirmacion de AutoCAD. Solo para sesiones de prueba: todo lo colocado va a las
+    capas SCH_ILUMINACION y SCH_AUDIO y se deshace con quitar_colocaciones (o Ctrl+Z). modo_prueba=False restablece la proteccion.
+    """
+    actuales = _ajustes()
+    if modo_prueba is not None:
+        actuales["modo_prueba"] = bool(modo_prueba)
+        try:
+            RUTA_AJUSTES.parent.mkdir(parents=True, exist_ok=True)
+            RUTA_AJUSTES.write_text(json.dumps(actuales, indent=1), encoding="utf-8")
+        except OSError as e:
+            return {"ok": False, "error": "no_pude_guardar", "detalle": str(e)}
+    return {"ok": True, "ajustes": actuales, "candado_de_planos_grandes": "DESACTIVADO (modo prueba)" if actuales.get("modo_prueba") else "activo",
+            "aviso": "Con modo_prueba la escritura en planos grandes ya no pide codigo: ejecuta directamente." if actuales.get("modo_prueba") else None}
+
+
+@mcp.tool()
+def ver_uso(ultimos: int = 40) -> dict:
+    """SOLO LECTURA: registro de uso del MCP (que herramientas se llamaron, en que orden, cuanto tardaron y cuales fallaron).
+
+    Sirve para medir velocidad y entender como esta trabajando el asistente. Se guarda en el PC del usuario (logs/uso.jsonl)."""
+    try:
+        lineas = RUTA_USO.read_text(encoding="utf-8").splitlines()[-max(1, min(int(ultimos), 500)):]
+        reg = [json.loads(x) for x in lineas if x.strip()]
+    except (OSError, ValueError):
+        return {"ok": True, "llamadas": 0, "detalle": "Todavia no hay registro de uso."}
+    total = sum(r.get("ms", 0) for r in reg)
+    por = {}
+    for r in reg:
+        d = por.setdefault(r["herramienta"], {"n": 0, "ms": 0, "fallos": 0})
+        d["n"] += 1
+        d["ms"] += r.get("ms", 0)
+        d["fallos"] += 0 if r.get("ok", True) else 1
+    return {"ok": True, "llamadas": len(reg), "tiempo_total_s": round(total / 1000, 1), "por_herramienta": por, "recientes": reg[-15:]}
+
+
+@mcp.tool()
+@_serializado
 def quitar_colocaciones(ejecutar: bool = False, confirmacion: str | None = None) -> dict:
     """BORRA lo que este MCP coloco: SOLO las entidades de las capas SCH_ILUMINACION y SCH_AUDIO (luminarias, parlantes, tiras, rotulos).
     Nunca toca otras capas (mobiliario, arquitectura, vegetacion) ni borra las capas. Sirve para repetir pruebas.
@@ -697,7 +847,7 @@ def quitar_colocaciones(ejecutar: bool = False, confirmacion: str | None = None)
     if (off := _escritura_off()):
         return off
     return acad.diseno({"op": "quitar", "ejecutar": bool(ejecutar), "confirmacion": confirmacion,
-                        "max_objetos": int(_escritura().get("max_objetos_dibujo", 300))}, **_diseno_tiempos())
+                        "max_objetos": _max_objetos()}, **_diseno_tiempos())
 
 
 @mcp.tool()
@@ -725,6 +875,7 @@ def _diseno_tiempos() -> dict:
 
 
 @mcp.tool()
+@_serializado
 def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccion: bool = False,
                         cerca_de: list[float] | None = None, opciones: dict | None = None,
                         ejecutar: bool = False, confirmacion: str | None = None) -> dict:
@@ -773,7 +924,7 @@ def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccio
     if len(nuevas) > int(_escritura().get("max_puntos", 100)):
         return {**resumen, "ok": False, "error": "demasiados_objetos"}
     r = acad.diseno({"op": "insertar", "colocaciones": nuevas, "ejecutar": bool(ejecutar), "confirmacion": confirmacion,
-                     "max_objetos": int(_escritura().get("max_objetos_dibujo", 300))}, **t)
+                     "max_objetos": _max_objetos()}, **t)
     if not r.get("ok"):
         return {**resumen, **r, "ok": False}
     aviso = {} if ejecutar else {"aviso": "ENSAYO: no se modifico nada. Revisa las colocaciones y repite con ejecutar=True."}
@@ -1226,6 +1377,42 @@ def registrar_referencias(items: list[dict], fuente: str, confirmado_por_usuario
     except ValueError as e:
         return {"ok": False, "error": "item_invalido", "detalle": str(e)}
     return {"ok": True, "guardadas": len(items), "total_confirmadas": len(todas), "archivo": REF_JSON.name}
+
+
+def _resultado_como_dict(res):
+    """El despachador de FastMCP devuelve el resultado convertido (lista de contenidos con el JSON como texto); lo vuelve a un dict."""
+    if isinstance(res, tuple) and len(res) == 2 and isinstance(res[1], dict):
+        return res[1]
+    if isinstance(res, dict):
+        return res
+    if isinstance(res, list) and res and getattr(res[0], "text", None):
+        try:
+            d = json.loads(res[0].text)
+            return d if isinstance(d, dict) else None
+        except ValueError:
+            return None
+    return None
+
+
+def _activar_registro_de_uso() -> None:
+    """Envuelve el despachador de herramientas de FastMCP para registrar cada llamada (nombre, duracion, ok/error)."""
+    original = mcp._tool_manager.call_tool
+
+    async def con_registro(name, arguments, *args, **kwargs):
+        t0 = time.time()
+        try:
+            res = await original(name, arguments, *args, **kwargs)
+        except Exception as e:
+            _registrar_uso(name, arguments, (time.time() - t0) * 1000, False, type(e).__name__)
+            raise
+        datos = _resultado_como_dict(res)
+        ok = not (isinstance(datos, dict) and datos.get("ok") is False)
+        _registrar_uso(name, arguments, (time.time() - t0) * 1000, ok, None if ok else (datos.get("error") if isinstance(datos, dict) else None))
+        return res
+    mcp._tool_manager.call_tool = con_registro
+
+
+_activar_registro_de_uso()
 
 
 def main():
