@@ -14,21 +14,24 @@ NOMBRE = "schaller-diseno"
 
 
 def rutas_config() -> list[Path]:
-    """Configuraciones donde ESCRIBIR para que Claude Desktop las lea.
+    """Configuraciones donde ESCRIBIR para que Claude Desktop las lea. Segun la version, la app lee un sitio distinto:
 
     - Instalacion clasica: %APPDATA%\\Claude (solo si esa carpeta ya existe).
-    - Version MSIX (la que instala claude.ai/download y la Store): la app lee SU carpeta virtualizada
-      Packages\\Claude_*\\LocalCache\\Roaming\\Claude, no %APPDATA%. Se escribe ahi AUNQUE aun no exista (se crea): una instalacion
-      recien hecha todavia no la ha creado, y escribir en %APPDATA% seria silencio total (la app no lo lee ni avisa).
+    - MSIX reciente (claude.ai/download, 2026): %LOCALAPPDATA%\\Claude-Data\\<id>\\claude_desktop_config.json. Es el archivo que abre
+      "Editar configuracion" y donde la app guarda tambien sus preferencias: el registro las respeta (solo agrega mcpServers).
+    - MSIX anterior: Packages\\Claude_*\\LocalCache\\Roaming\\Claude, AUNQUE aun no exista (se crea).
+    Escribir en un sitio que la app no lee no da ningun error: se queda en silencio, por eso se cubren todos los que existen.
     """
     cfg = "claude_desktop_config.json"
-    appdata = os.environ.get("APPDATA")
+    appdata, local = os.environ.get("APPDATA"), os.environ.get("LOCALAPPDATA")
     clasica = Path(appdata) / "Claude" / cfg if appdata else None
     destinos = []
     if clasica is not None and clasica.parent.exists():
         destinos.append(clasica)
-    local = os.environ.get("LOCALAPPDATA")
     if local:
+        for d in sorted(glob.glob(str(Path(local) / "Claude-Data" / "*"))):
+            if os.path.isdir(d):
+                destinos.append(Path(d) / cfg)
         for p in sorted(glob.glob(str(Path(local) / "Packages" / "Claude_*"))):
             if os.path.isdir(p):
                 destinos.append(Path(p) / "LocalCache" / "Roaming" / "Claude" / cfg)

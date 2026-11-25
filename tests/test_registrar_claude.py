@@ -83,3 +83,19 @@ def test_clasica_y_msix_a_la_vez_escribe_en_las_dos(monkeypatch, tmp_path):
 def test_sin_claude_instalado_cae_a_appdata(monkeypatch, tmp_path):
     appdata, _ = _entorno(monkeypatch, tmp_path)
     assert rc.rutas_config() == [appdata / "Claude" / "claude_desktop_config.json"]
+
+
+
+def test_msix_reciente_escribe_en_claude_data_y_conserva_las_preferencias_de_la_app(monkeypatch, tmp_path):
+    # Caso real: Claude Desktop (2026) lee %LOCALAPPDATA%\Claude-Data\<id>\claude_desktop_config.json y guarda ahi sus preferencias.
+    appdata, pkg = _entorno(monkeypatch, tmp_path, paquete=True)
+    datos = tmp_path / "AppData" / "Local" / "Claude-Data" / "claude_abc123"
+    datos.mkdir(parents=True)
+    real = datos / "claude_desktop_config.json"
+    real.write_text(json.dumps({"preferences": {"sidebarMode": "x", "anidado": {"a": [1, 2]}}, "coworkUserFilesPath": "C:\\Claude"}), encoding="utf-8")
+    assert real in rc.rutas_config()
+    assert rc.main(["py.exe", "server.py"]) == 0
+    d = json.loads(real.read_text(encoding="utf-8"))
+    assert d["mcpServers"]["schaller-diseno"]["command"] == "py.exe"
+    assert d["preferences"] == {"sidebarMode": "x", "anidado": {"a": [1, 2]}} and d["coworkUserFilesPath"] == "C:\\Claude"
+    assert (datos / "claude_desktop_config.json.bak").is_file()               # copia de seguridad antes de tocarlo

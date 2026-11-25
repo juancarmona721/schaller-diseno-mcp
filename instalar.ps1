@@ -124,6 +124,21 @@ $modoExtension = ($env:SCHALLER_MODO -eq "extension")
 if ($modoExtension) {
     Paso "Modo extension: se omite el archivo de configuracion de Claude Desktop."
 } else {
+    # Claude Desktop guarda sus propias preferencias en ese mismo archivo: si sigue abierto puede deshacer el registro al cerrarse.
+    $desk = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*WindowsApps*Claude_*" -or $_.Path -like "*AnthropicClaude*" })
+    if ($desk.Count -gt 0) {
+        Write-Host "   Claude Desktop esta abierto. Hay que cerrarlo para registrar el MCP (si no, puede deshacer el cambio al guardar sus preferencias)." -ForegroundColor Yellow
+        $resp = "S"
+        if ($env:SCHALLER_CERRAR_CLAUDE -eq "0") { $resp = "N" }
+        elseif ($env:SCHALLER_CERRAR_CLAUDE -ne "1") { try { $resp = Read-Host "   Cerrar Claude Desktop ahora? (S/n)" } catch { $resp = "N" } }
+        if ($resp -notmatch "^[nN]") {
+            $desk | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            Write-Host "   Claude Desktop cerrado. Abrelo de nuevo al terminar." -ForegroundColor Green
+        } else {
+            Write-Host "   Sigo sin cerrarlo: cuando termine, cierralo del todo y abrelo de nuevo (y repite la instalacion si no aparece)." -ForegroundColor Yellow
+        }
+    }
     Paso "Registrando en Claude Desktop..."
     $reg = Join-Path $InstallDir "registrar_claude.py"
     $argsReg = @($reg, $VenvPython, (Join-Path $InstallDir "server.py"))

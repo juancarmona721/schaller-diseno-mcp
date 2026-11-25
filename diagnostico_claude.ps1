@@ -19,6 +19,7 @@ Linea ""
 Linea "=== 2. Archivos de configuracion ==="
 $cfgs = @("$env:APPDATA\Claude\claude_desktop_config.json")
 foreach ($p in $store) { $cfgs += (Join-Path $p.FullName "LocalCache\Roaming\Claude\claude_desktop_config.json") }
+foreach ($dd in @(Get-ChildItem "$env:LOCALAPPDATA\Claude-Data" -Directory -ErrorAction SilentlyContinue)) { $cfgs += (Join-Path $dd.FullName "claude_desktop_config.json") }
 $hayEntrada = $false
 foreach ($c in $cfgs) {
     Linea ("ARCHIVO: " + $c + "  | existe: " + (Test-Path $c))
@@ -45,7 +46,7 @@ if (-not $hayEntrada) { Linea ""; Linea ">> RESULTADO: schaller-diseno no esta r
 
 Linea ""
 Linea "=== 3. Logs recientes del MCP ==="
-$carpetasLog = @("$env:APPDATA\Claude\logs")
+$carpetasLog = @("$env:APPDATA\Claude\logs", "$env:LOCALAPPDATA\Claude\logs")
 foreach ($p in $store) { $carpetasLog += (Join-Path $p.FullName "LocalCache\Roaming\Claude\logs") }
 $visto = $false
 foreach ($d in $carpetasLog) {

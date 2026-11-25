@@ -39,10 +39,14 @@ def test_el_paquete_versionado_esta_al_dia_y_bien_formado():
         assert z.read("server/index.js") == (RAIZ / "extension" / "server" / "index.js").read_bytes()
 
 
-def test_el_lanzador_no_toca_stdin_ni_escribe_en_stdout():
+def test_el_lanzador_retransmite_por_tuberias_y_no_hereda_stdio():
+    # Dentro de Claude Desktop (Node de Electron) stdin no es heredable: con stdio:"inherit" Python terminaba en silencio.
     js = (RAIZ / "extension" / "server" / "index.js").read_text(encoding="utf-8")
-    assert 'stdio: "inherit"' in js and "process.stdin" not in js.replace("// No se toca process.stdin", "")
-    assert "console.log" not in js          # stdout es del protocolo MCP
+    codigo = "\n".join(l for l in js.splitlines() if not l.strip().startswith("//"))
+    assert 'stdio: "inherit"' not in codigo and "stdio:\"inherit\"" not in codigo
+    assert 'stdio: ["pipe", "pipe", "pipe"]' in codigo
+    assert "process.stdin.pipe(hijo.stdin)" in codigo and "hijo.stdout.pipe(process.stdout)" in codigo
+    assert "console.log" not in codigo          # stdout es del protocolo MCP
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="necesita Node.js (Claude Desktop trae el suyo)")
