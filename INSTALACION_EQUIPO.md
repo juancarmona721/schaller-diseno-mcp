@@ -2,12 +2,27 @@
 
 Tiempo: unos 3 minutos. No necesitas saber programar.
 
-## El comando (pégalo en PowerShell)
+## El comando (pégalo en **PowerShell**, no en CMD)
+Abre PowerShell (tecla Windows, escribe `PowerShell`, Enter) y pega estas dos líneas:
 ```powershell
-irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 | iex
+irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 -OutFile $env:TEMP\schaller_instalar.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\schaller_instalar.ps1
 ```
 Eso instala el MCP, lo conecta a Claude Desktop, comprueba AutoCAD, **busca `bloques_schaller.dwg` y lo abre** en AutoCAD, y termina con un diagnóstico (`[OK] ... todo listo`).
-Después solo cierra Claude Desktop por completo (bandeja, *Quit*) y ábrelo otra vez.
+Después cierra Claude Desktop por completo (bandeja, *Quit*) y ábrelo otra vez.
+
+> Usa la versión de dos líneas (descarga el instalador a un archivo): algunos PC con protección de seguridad bloquean la forma abreviada `irm ... | iex`.
+> Si en CMD sale *"irm no se reconoce"*, es que no estás en PowerShell.
+
+## Plan B: si Claude no muestra el MCP (modo extensión)
+Algunas versiones de Claude Desktop (sobre todo la de la Microsoft Store) no leen el archivo de configuración y no muestran nada, sin dar error. En ese caso instala el MCP como **extensión**, que no usa ese archivo:
+```powershell
+$env:SCHALLER_MODO = "extension"
+irm https://raw.githubusercontent.com/juancarmona721/schaller-diseno-mcp/main/instalar.ps1 -OutFile $env:TEMP\schaller_instalar.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\schaller_instalar.ps1
+```
+Se abrirá una ventana de Claude Desktop: pulsa **Instalar**. Si no se abre sola, arrastra el archivo `schaller-diseno.mcpb` (el instalador te muestra su carpeta) a la ventana de Claude.
+Después verás **Schaller Diseno (AutoCAD)** en **Settings → Extensions** con su interruptor.
 
 ## Antes de empezar
 Necesitas en tu PC (Windows):
@@ -44,7 +59,7 @@ Vuelve a pegar la misma línea del Paso 1 y reinicia Claude Desktop. Conserva tu
 ## Si algo no funciona
 | Síntoma | Qué hacer |
 |---|---|
-| No aparece `schaller-diseno` en Developer | Cierra Claude Desktop **por completo** (bandeja, *Quit*) y ábrelo de nuevo. Si sigue, repite el Paso 1. |
+| No aparece `schaller-diseno` en Developer, o no hay opción Developer | Cierra Claude Desktop **por completo** y ábrelo de nuevo. Si sigue igual, usa el **Plan B (modo extensión)** de arriba. |
 | "No encontré AutoCAD abierto" | Abre AutoCAD con un dibujo antes de pedir nada. Debe ser AutoCAD completo, no LT. |
 | "bloques_no_disponibles" | Abre `bloques_schaller.dwg` en la misma sesión de AutoCAD. |
 | "La llamada fue rechazada" | AutoCAD está ocupado (un comando activo o regenerando). Pulsa Esc dos veces y repite. |
