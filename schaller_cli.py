@@ -17,6 +17,7 @@ def construir_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="comando", required=True)
     sub.add_parser("estado", help="Muestra el dibujo activo de AutoCAD.")
     sub.add_parser("diagnostico", help="Comprueba que AutoCAD responde y que bloques_schaller_corregido.dwg esta abierto, con consejos.")
+    sub.add_parser("autoprueba", help="Comprueba la instalacion (nivel 1): Python, dependencias, rutas, configuracion. No abre ni toca ningun dibujo.")
     q = sub.add_parser("quitar", help="Borra lo colocado por el MCP (capas SCH_ILUMINACION y SCH_AUDIO). Sin --ejecutar solo cuenta.")
     q.add_argument("--ejecutar", action="store_true", help="Borra de verdad (sin esto es un ensayo).")
     q.add_argument("--codigo", default=None, help="Codigo de 4 caracteres que AutoCAD muestra en su linea de comandos (planos grandes).")
@@ -50,6 +51,12 @@ def informe_diagnostico(res: dict) -> list[str]:
 
 def main(argv=None) -> int:
     args = construir_parser().parse_args(argv)
+    if args.comando == "autoprueba":
+        import autoprueba
+        import server
+        res = autoprueba.ejecutar(server.AQUI, server.CARPETA_PERFILES)
+        print("\n".join(autoprueba.informe(res)))
+        return 0 if res["ok"] else 1
     if args.comando == "diagnostico":
         res = ejecutar(args)
         print("\n".join(informe_diagnostico(res)))

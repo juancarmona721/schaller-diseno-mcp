@@ -10,6 +10,8 @@ import sys
 import threading
 from pathlib import Path
 
+import metricas
+
 AQUI = Path(__file__).resolve().parent
 PROBE_ESTADO = AQUI / "sondas" / "sonda_estado.py"
 PROBE_BLOQUES = AQUI / "sondas" / "sonda_bloques.py"
@@ -37,6 +39,14 @@ def _correr(script: Path, timeout_s: float, argumentos=None, mensaje_timeout: st
 
 
 def _correr_sin_candado(script: Path, timeout_s: float, argumentos=None, mensaje_timeout: str | None = None) -> dict:
+    with metricas.etapa("subproceso." + script.stem):         # apagada: un contexto vacio compartido, sin reloj ni memoria
+        res = _lanzar(script, timeout_s, argumentos, mensaje_timeout)
+    if isinstance(res, dict) and "_metricas" in res:
+        metricas.absorber(res.pop("_metricas"))
+    return res
+
+
+def _lanzar(script: Path, timeout_s: float, argumentos=None, mensaje_timeout: str | None = None) -> dict:
     try:
         r = subprocess.run(
             [sys.executable, "-I", str(script), *(argumentos or [])],

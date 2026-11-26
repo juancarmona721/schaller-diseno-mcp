@@ -1,0 +1,143 @@
+"""Fase 1A (servidor): la escritura deja constancia (diario + marcas), el reintento no duplica y una operacion a medias se reconcilia."""
+import pytest
+
+import operaciones
+import server
+
+H = {"nombre": "Cama X", "handle": "8A21", "x0": 0, "y0": 0, "x1": 2.1, "y1": 2.4, "w": 2.1, "h": 2.4}
+ITEM = {"receta": "centro", "anfitrion": "Cama X", "opciones": {"producto": "ci160"}}
+
+
+def _ctx(existentes=None):
+    return {"ok": True, "plano": "Oficina_A.dwg", "hosts": [{"nombre": "Cama X", "host": H}], "muros": [], "n_muros": 0,
+            "existentes": existentes or [], "objetos_en_modelo": 50}
+
+
+def _montar(monkeypatch, existentes=None, insertar=None):
+    vistos = []
+
+    def diseno(args, **kw):
+        vistos.append(args)
+        if args["op"] == "contexto_varios":
+            return _ctx(existentes)
+        return insertar(args) if insertar else {"ok": True, "ejecutado": args["ejecutar"], "insertados": len(args["colocaciones"]),
+                                                  "operacion": {"id": (args.get("operacion") or {}).get("id"), "piezas_marcadas": len(args["colocaciones"]), "fallos_xdata": 0}}
+    monkeypatch.setattr(server.acad, "diseno", diseno)
+    return vistos
+
+
+def _estado(op_id):
+    return server._diario().cargar(op_id)["estado"]
+
+
+def test_una_escritura_deja_el_diario_con_la_intencion_y_marca_cada_pieza(monkeypatch):
+    vistos = _montar(monkeypatch)
+    r = server.ubicar_varios([ITEM], ejecutar=True)
+    ins = vistos[-1]
+    assert r["ok"] and r["operacion_id"].startswith("op_") and ins["operacion"]["id"] == r["operacion_id"]
+    assert all(c["item_id"].startswith("d1|8A21|centro|") for c in ins["colocaciones"])
+    d = server._diario().cargar(r["operacion_id"])
+    assert d["estado"] == "aplicada" and d["items"][0]["item_id"] == ins["colocaciones"][0]["item_id"] and d["plan_hash"]
+
+
+def test_un_ensayo_no_crea_diario_ni_operacion(monkeypatch):
+    vistos = _montar(monkeypatch)
+    r = server.ubicar_varios([ITEM], ejecutar=False)
+    assert "operacion_id" not in r and "operacion" not in vistos[-1] and not server.RUTA_OPERACIONES.exists()
+
+
+def test_repetir_con_las_piezas_ya_marcadas_no_duplica(monkeypatch):
+    vistos = _montar(monkeypatch)
+    ids = [c["item_id"] for c in (server.ubicar_varios([ITEM], ejecutar=False), vistos[-1])[1]["colocaciones"]]
+    pos = [(c["x"], c["y"], c["bloque"]) for c in vistos[-1]["colocaciones"]]
+    existentes = [{"item_id": i, "bloque": b, "x": x, "y": y, "handle": str(n), "op_id": "op_antigua"} for n, (i, (x, y, b)) in enumerate(zip(ids, pos))]
+    _montar(monkeypatch, existentes=existentes)
+    r = server.ubicar_varios([ITEM], ejecutar=True)
+    assert r["a_colocar"] == 0 and "No hay nada nuevo" in r["aviso"]
+
+
+def test_una_pieza_marcada_pero_con_otro_producto_se_reporta_como_cambiada_y_no_se_mueve(monkeypatch):
+    vistos = _montar(monkeypatch)
+    server.ubicar_varios([ITEM], ejecutar=False)
+    c0 = vistos[-1]["colocaciones"][0]
+    _montar(monkeypatch, existentes=[{"item_id": c0["item_id"], "bloque": "OTRO", "x": c0["x"], "y": c0["y"], "handle": "1", "op_id": "op_x"}])
+    r = server.ubicar_varios([ITEM], ejecutar=False)
+    assert r["items"][0]["cambiadas"][0]["bloque_existente"] == "OTRO"
+
+
+def test_un_fallo_antes_de_escribir_deja_la_operacion_fallida(monkeypatch):
+    _montar(monkeypatch, insertar=lambda a: {"ok": False, "error": "dibujo_grande_requiere_confirmacion"})
+    r = server.ubicar_varios([ITEM], ejecutar=True)
+    assert not r["ok"] and _estado(r["operacion_id"]) == "fallida"
+
+
+def test_un_fallo_a_mitad_deja_la_operacion_incierta_y_la_siguiente_llamada_la_reconcilia(monkeypatch):
+    _montar(monkeypatch, insertar=lambda a: {"ok": False, "error": "autocad_no_responde"})
+    r1 = server.ubicar_varios([ITEM], ejecutar=True)
+    assert _estado(r1["operacion_id"]) == "incierta"
+    esperados = server._diario().cargar(r1["operacion_id"])["items"]
+    # en el dibujo quedaron marcadas las piezas 1..n-1 (la ultima se perdio)
+    existentes = [{"item_id": e["item_id"], "bloque": e["bloque"], "x": e["x"], "y": e["y"], "handle": str(i), "op_id": r1["operacion_id"]}
+                  for i, e in enumerate(esperados[:-1])]
+    vistos = _montar(monkeypatch, existentes=existentes)
+    r2 = server.ubicar_varios([ITEM], ejecutar=True)
+    prev = r2["operaciones_previas"][0]
+    assert r2["ok"] and prev["estado"] == "parcial" and prev["faltan"] == 1 and _estado(r1["operacion_id"]) == "parcial"
+    assert [c["item_id"] for c in vistos[-1]["colocaciones"]] == [esperados[-1]["item_id"]]      # solo repone lo que faltaba
+
+
+def test_si_una_operacion_previa_es_ambigua_no_se_escribe_nada(monkeypatch):
+    _montar(monkeypatch, insertar=lambda a: {"ok": False, "error": "autocad_no_responde"})
+    r1 = server.ubicar_varios([ITEM], ejecutar=True)
+    esperado = server._diario().cargar(r1["operacion_id"])["items"][0]
+    dos_candidatos = [{"bloque": esperado["bloque"], "x": esperado["x"], "y": esperado["y"], "handle": "8"},
+                      {"bloque": esperado["bloque"], "x": esperado["x"] + 0.01, "y": esperado["y"], "handle": "9"}]
+    vistos = _montar(monkeypatch, existentes=dos_candidatos)
+    r2 = server.ubicar_varios([ITEM], ejecutar=True)
+    assert not r2["ok"] and r2["error"] == "operacion_previa_ambigua" and not any(v["op"] == "insertar" for v in vistos)
+
+
+def test_lo_que_ya_existia_antes_no_se_adopta_como_parte_de_la_operacion(monkeypatch):
+    _montar(monkeypatch, existentes=[{"bloque": "X", "x": 9, "y": 9, "handle": "77"}], insertar=lambda a: {"ok": False, "error": "autocad_no_responde"})
+    r1 = server.ubicar_varios([ITEM], ejecutar=True)
+    assert "77" in server._diario().cargar(r1["operacion_id"])["previos"]
+
+
+def test_sin_diario_no_se_escribe(monkeypatch, tmp_path):
+    archivo = tmp_path / "archivo_no_carpeta"
+    archivo.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(server, "RUTA_OPERACIONES", archivo)               # no se puede crear una carpeta ahi
+    vistos = _montar(monkeypatch)
+    r = server.ubicar_varios([ITEM], ejecutar=True)
+    assert not r["ok"] and r["error"] == "diario_no_disponible" and not any(v["op"] == "insertar" for v in vistos)
+
+
+def test_ubicar_en_anfitrion_tambien_usa_la_operacion(monkeypatch):
+    vistos = []
+
+    def diseno(args, **kw):
+        vistos.append(args)
+        if args["op"] == "contexto":
+            return {"ok": True, "plano": "Oficina_A.dwg", "anfitrion": H, "muros": [], "n_muros": 0, "existentes": []}
+        return {"ok": True, "ejecutado": True, "insertados": len(args["colocaciones"])}
+    monkeypatch.setattr(server.acad, "diseno", diseno)
+    r = server.ubicar_en_anfitrion("centro", anfitrion="Cama X", opciones={"producto": "ci160"}, ejecutar=True)
+    assert r["ok"] and r["operacion_id"] and vistos[-1]["operacion"]["id"] == r["operacion_id"]
+    assert all(c["item_id"] for c in vistos[-1]["colocaciones"])
+
+
+def test_el_modo_de_marca_cabe_en_un_campo_xdata():
+    for it in ("d1|8A21|cama|cctevo58_12", operaciones.logical_item_id("diseno largo", "FFFF", "pared_frente", "ci200qs_3") + "#rotulo"):
+        assert len(it.encode("utf-8")) < 255
+
+
+def test_la_reconciliacion_se_informa_aunque_no_quede_nada_por_colocar(monkeypatch):
+    _montar(monkeypatch, insertar=lambda a: {"ok": False, "error": "autocad_no_responde"})
+    r1 = server.ubicar_varios([ITEM], ejecutar=True)
+    esperados = server._diario().cargar(r1["operacion_id"])["items"]
+    todas_marcadas = [{"item_id": e["item_id"], "bloque": e["bloque"], "x": e["x"], "y": e["y"], "handle": str(i), "op_id": r1["operacion_id"],
+                       "capa_incorrecta": "0"} for i, e in enumerate(esperados)]
+    _montar(monkeypatch, existentes=todas_marcadas)
+    r2 = server.ubicar_varios([ITEM], ejecutar=True)
+    prev = r2["operaciones_previas"][0]
+    assert r2["a_colocar"] == 0 and prev["estado"] == "aplicada" and prev["con_capa_incorrecta"] == len(esperados)

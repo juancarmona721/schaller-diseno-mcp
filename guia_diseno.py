@@ -31,6 +31,12 @@ FLUJO NORMAL
    Evidencia: textos con nombre de espacio + poligono cerrado (limites y area) > roles de mobiliario > agrupamiento (confianza baja).
    Cada mueble puede traer "atributos": lo que el usuario ya confirmo (cabecera, ancho_cama, filas, puntos exactos...). USALOS: no los preguntes.
    No inventes zonas ni ambientes que la herramienta no devolvio.
+   PLANOS SIN ROTULOS: escanear_zonas ya intenta entenderlos solo. Devuelve recintos CANDIDATOS (origen "poligono", confianza baja: poligonos
+   cerrados con tamano de habitacion) y muebles con rol_origen "inferido" (por los bloques anidados de su definicion). Usalos para decidir, declaralos
+   como SUPUESTOS y NO tomes capturas de pantalla ni controles el escritorio: es lento y no hace falta. Si devuelve 0 zonas trae `diagnostico`.
+   VARIAS PLANTAS EN UN DIBUJO: escanear_zonas devuelve `vistas` (grupos de geometria separados) y cada zona trae su `vista`. Una vista NO es un piso:
+   no asumas niveles; usa el nombre solo si trae texto ("PLANTA ..."), si no, llamalas "vista 1/2" y declaralo como supuesto.
+   ANFITRION GIRADO: el MCP calcula en el marco del propio mueble (N/S/E/O de la receta son las de su dibujo; el perfil puede traer cabecera_local).
 2. Si el plano no trae nombres de ambientes o hay bloques anonimos (p. ej. Gruppo-120), usa las sugerencias_roles: elige el rol mas probable segun
    tamano y posicion, registralo con perfil_proyecto(accion="rol") y declaralo como supuesto. Un rol dudoso que no necesitas, ignoralo.
 3. Elige el anfitrion (el mueble sobre el que se ubica): listar_anfitriones, o el que el usuario tenga SELECCIONADO en AutoCAD.

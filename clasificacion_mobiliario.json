@@ -1,0 +1,22 @@
+{
+  "_nota": "Datos EDITABLES del clasificador de mobiliario anonimo. 'rangos' son tamanos reales en metros (lado menor y mayor de la caja del bloque). 'pesos' suman evidencias; las evidencias NEGATIVAS (tamano incompatible) restan; la ausencia de dato no resta. 'umbrales': alta/media se aceptan como rol; baja solo se sugiere.",
+  "pesos": {
+    "nombre_anidado": 0.55,
+    "nombre_anidado_extra": 0.10,
+    "nombre_anidado_extra_max": 0.20,
+    "capa_interna": 0.25,
+    "tamano_compatible": 0.25,
+    "tamano_incompatible": -0.35,
+    "forma_circular": 0.20
+  },
+  "umbrales": {"alta": 0.80, "media": 0.55, "baja": 0.30},
+  "rangos": {
+    "cama": {"lado_menor": [1.2, 2.5], "lado_mayor": [1.8, 2.8]},
+    "sofa": {"lado_menor": [0.7, 1.2], "lado_mayor": [1.4, 3.6]},
+    "mesa_comedor": {"lado_menor": [0.7, 1.6], "lado_mayor": [0.9, 4.5]},
+    "escritorio": {"lado_menor": [0.5, 1.0], "lado_mayor": [1.0, 2.4]},
+    "isla": {"lado_menor": [0.7, 1.4], "lado_mayor": [1.2, 4.0]},
+    "mesa_reuniones": {"lado_menor": [1.0, 2.0], "lado_mayor": [2.0, 7.0]}
+  },
+  "circular_para": ["mesa_comedor", "mesa_reuniones"]
+}

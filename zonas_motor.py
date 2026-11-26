@@ -12,6 +12,9 @@ import math
 import re
 from pathlib import Path
 
+import clasificador
+import plantas
+
 AQUI = Path(__file__).resolve().parent
 RUTA_VOCABULARIO = AQUI / "vocabulario_espacios.json"
 
@@ -19,6 +22,8 @@ PRIORIDAD_ROL = ["cama", "sanitario", "isla", "cocina_mueble", "mesa_reuniones",
                  "vitrina_exhibidor", "mesa_comedor", "sofa"]
 CATEGORIAS_UBICUAS = 4           # una categoria presente en mas de 4 tipologias no aporta para deducir el tipo de proyecto
 AREA_MIN_M2, AREA_MAX_M2 = 1.5, 4000.0
+RECINTO_MIN_M2, RECINTO_LADO_MIN_M = 3.0, 1.2     # un poligono sin texto solo es CANDIDATO a recinto si es del tamano de una habitacion
+MAX_RECINTOS_CANDIDATOS = 60
 RADIO_ASOCIAR_M = 4.0            # mueble <-> texto cuando no hay poligono
 HUECO_CLUSTER_M = 3.0            # muebles con menos de esto entre sus cajas son de la misma zona (sofas enfrentados, escritorios contiguos)
 
@@ -156,7 +161,7 @@ VERSION_MOTOR = 3                # esquema del resultado; ademas la version incl
 def version_motor(ruta_vocabulario=None) -> str:
     """Cambia sola si cambia el CODIGO de este modulo o el vocabulario editable: las caches viejas dejan de valer."""
     h = hashlib.sha1()
-    for ruta in (Path(ruta_vocabulario or RUTA_VOCABULARIO), Path(__file__)):
+    for ruta in (Path(ruta_vocabulario or RUTA_VOCABULARIO), Path(__file__), Path(clasificador.__file__), clasificador.RUTA):
         try:
             h.update(ruta.read_bytes())
         except OSError:
@@ -191,6 +196,41 @@ def rol_de_bloque(nombre: str, capa: str, vocab: Vocabulario, perfil: dict):
     return None, False
 
 
+def _iou_bbox(a, b) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _contiene_bbox(a, b, tol=0.01) -> bool:
+    ancho, alto = a[2] - a[0], a[3] - a[1]
+    return a[0] - tol * ancho <= b[0] and a[1] - tol * alto <= b[1] and b[2] <= a[2] + tol * ancho and b[3] <= a[3] + tol * alto
+
+
+def _poligonos_candidatos(polis: list, u: float) -> list:
+    """Poligonos libres (sin texto) que pueden ser una habitacion. Descarta los pequenos o estrechos (muebles, franjas), los duplicados,
+    los contornos que contienen varias habitaciones y los dobles trazos de muro (se queda el interior)."""
+    libres = [p for p in polis if p["area_m2"] >= RECINTO_MIN_M2 and min(p["bbox"][2] - p["bbox"][0], p["bbox"][3] - p["bbox"][1]) * u >= RECINTO_LADO_MIN_M]
+    unicos = []
+    for p in sorted(libres, key=lambda q: q["area_m2"]):
+        if not any(_iou_bbox(p["bbox"], q["bbox"]) > 0.9 for q in unicos):
+            unicos.append(p)
+    salida = []
+    for p in unicos:
+        hijos = [q for q in unicos if q is not p and _contiene_bbox(p["bbox"], q["bbox"]) and q["area_m2"] < p["area_m2"]]
+        if len(hijos) >= 2:
+            continue                                          # contorno del edificio o de una planta
+        if len(hijos) == 1 and hijos[0]["area_m2"] >= 0.6 * p["area_m2"]:
+            continue                                          # doble trazo de muro: el interior es el recinto
+        salida.append(p)
+    salida.sort(key=lambda q: -q["area_m2"])
+    salida = salida[:MAX_RECINTOS_CANDIDATOS]
+    salida.sort(key=lambda q: (round(q["bbox"][1], 1), q["bbox"][0]))
+    return salida
+
+
 def _dim(b, unidad_m):
     return (b["x1"] - b["x0"]) * unidad_m, (b["y1"] - b["y0"]) * unidad_m
 
@@ -206,6 +246,9 @@ def _pista_por_tamano(w, h):
 def _detalle(h: dict, perfil: dict) -> dict:
     """Ficha de un mueble en una zona. Si el usuario ya respondio cosas sobre el (perfil), van en 'atributos': no hay que volver a preguntar."""
     d = {k: h[k] for k in ("nombre", "rol", "x", "y", "w", "h")}
+    for k in ("rol_origen", "confianza_rol"):
+        if k in h:
+            d[k] = h[k]
     a = atributos_de(perfil, h["nombre"])
     if a:
         d["atributos"] = a
@@ -241,9 +284,12 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
 
     # --- zonas por texto (+ poligono)
     vistos = set()
+    n_reconocidos = 0
     for t in raw.get("textos", []):
         txt = limpiar_texto(t["t"])
         cl = clasificar_texto(txt, vocab)
+        if cl is not None:
+            n_reconocidos += 1
         poli = poligono_de(t["x"], t["y"])
         if cl is None:
             # nombre desconocido: solo si esta en una capa de rotulos Y dentro de un recinto (no es ruido)
@@ -264,7 +310,16 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
                      area_m2=round(poli["area_m2"], 2), origen="texto+poligono", confianza="alta")
         zonas.append(z)
 
+    # --- recintos CANDIDATOS: poligonos del tamano de una habitacion que ningun texto reclamo (planos sin rotulos). Son hipotesis de confianza baja.
+    for i, p in enumerate(_poligonos_candidatos([q for q in polis if id(q) not in {id(z["_poli"]) for z in zonas if z.get("_poli")}], u), 1):
+        b = p["bbox"]
+        zonas.append({"nombre": f"Recinto {i} (sin rotulo)", "tipo_espacio": "otro", "grupos": [], "x": round((b[0] + b[2]) / 2, 3),
+                      "y": round((b[1] + b[3]) / 2, 3), "capa": "", "origen": "poligono", "confianza": "baja", "candidato": True,
+                      "bbox": [round(v, 3) for v in b], "area_m2": round(p["area_m2"], 2), "muebles": [], "muebles_detalle": [],
+                      "inferido_por": [], "_poli": p})
+
     # --- mobiliario: rol y asociacion a zonas
+    definiciones = raw.get("definiciones") or {}
     hosts, ignorados, sin_rol = [], 0, []
     for b in raw.get("bloques", []):
         rol, ign = rol_de_bloque(b["n"], b.get("capa", ""), vocab, perfil)
@@ -274,6 +329,13 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
         cx, cy = _centro(b)
         d = {"nombre": b["n"], "rol": rol, "x": round(cx, 3), "y": round(cy, 3), "w": round(b["x1"] - b["x0"], 3),
              "h": round(b["y1"] - b["y0"], 3), "capa": b.get("capa", ""), "_b": b}
+        if rol is None and b["n"] in definiciones:          # sin perfil ni nombre util: la definicion del bloque (nombres anidados, capas, tamano)
+            cl = clasificador.clasificar(b["n"], b.get("capa", ""), d["w"] * u, d["h"] * u, definiciones[b["n"]], vocab)
+            if clasificador.aceptado(cl):
+                rol = d["rol"] = cl["rol"]
+                d["rol_origen"], d["confianza_rol"] = "inferido", cl["confianza"]
+            elif cl:
+                d["_cl"] = cl
         (hosts if rol else sin_rol).append(d)
 
     for h in hosts:
@@ -288,6 +350,20 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
             z["muebles"].append(h["nombre"])
             z["muebles_detalle"].append(_detalle(h, perfil))
             h["_asignado"] = True
+
+    candidatos = [z for z in zonas if z.get("candidato")]
+    for i, z in enumerate(candidatos, 1):
+        roles = [m["rol"] for m in z["muebles_detalle"] if m["rol"] in vocab.rol_a_zona]
+        if roles:
+            dominante = min(roles, key=lambda r: PRIORIDAD_ROL.index(r) if r in PRIORIDAD_ROL else 99)
+            tipo = vocab.rol_a_zona[dominante]
+            z["tipo_espacio"] = tipo
+            z["grupos"] = next((g for c, g, _ in vocab.espacios if c == tipo), [])
+            z["nombre"] = f"{tipo.replace('_', ' ').capitalize()} {i} (sin rotulo)"
+            inferidos = [m for m in z["muebles_detalle"] if m.get("rol_origen") == "inferido"]
+            z["inferido_por"] = [f"tipo deducido del mobiliario ({', '.join(sorted(set(roles)))})" + (" [parte inferido por la definicion de sus bloques]" if inferidos else "")]
+        else:
+            z["inferido_por"] = ["sin mobiliario clasificado dentro: tipo desconocido"]
 
     # --- zonas inferidas por agrupamiento de mobiliario sin zona
     libres = [h for h in hosts if not h.get("_asignado") and h["rol"] in vocab.rol_a_zona]
@@ -352,13 +428,26 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
             continue
         r = resumen_sin_rol.setdefault(h["nombre"], {"nombre": h["nombre"], "cantidad": 0, "ancho_m": round(w, 2), "alto_m": round(hh, 2),
                                                       "ejemplo": [h["x"], h["y"]], "pista": _pista_por_tamano(w, hh)})
+        if h.get("_cl") and "clasificacion_sugerida" not in r:
+            r["clasificacion_sugerida"] = {k: h["_cl"][k] for k in ("rol", "confianza", "puntaje")}
         r["cantidad"] += 1
     sugerencias = sorted(resumen_sin_rol.values(), key=lambda r: -(r["ancho_m"] * r["alto_m"]))[:15]
 
+    # --- vistas (plantas candidatas): geometria arquitectonica agrupada por separacion; cada zona se asigna a la suya
+    cajas = [p["bbox"] for p in polis] + [(h["_b"]["x0"], h["_b"]["y0"], h["_b"]["x1"], h["_b"]["y1"]) for h in hosts + sin_rol if "_b" in h]
+    vistas = plantas.detectar(cajas, raw.get("textos", []), u)
+    for z in zonas:
+        z["vista"] = plantas.vista_de(vistas, z["x"], z["y"])
+    for v in vistas:
+        v["n_zonas"] = sum(1 for z in zonas if z["vista"] == v["id"])
     for z in zonas:
         z.pop("_poli", None)
     for h in hosts + sin_rol:
         h.pop("_b", None)
+        h.pop("_cl", None)
     return {"zonas": zonas, "total": len(zonas), "tipologia": elegida, "tipologia_detectada": detectada, "tipologia_pesos": dict(orden),
             "bloques_ignorados": ignorados, "bloques_con_rol": len(hosts), "bloques_sin_rol": len(sin_rol),
-            "sugerencias_roles": sugerencias, "unidad_m": u}
+            "sugerencias_roles": sugerencias, "unidad_m": u, "vistas": vistas,
+            "resumen_lectura": {"textos": len(raw.get("textos", [])), "textos_con_nombre_de_espacio": n_reconocidos,
+                                "poligonos": len(raw.get("poligonos", [])), "poligonos_con_area_de_recinto": len(polis), "recintos_candidatos": len([z for z in zonas if z.get("candidato")]),
+                                "bloques": len(raw.get("bloques", [])), "bloques_con_rol": len(hosts), "bloques_sin_rol": len(sin_rol)}}

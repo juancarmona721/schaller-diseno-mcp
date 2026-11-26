@@ -20,6 +20,9 @@ import zonas_motor  # noqa: E402
 UNIDAD_A_METROS = {1: 0.0254, 2: 0.3048, 3: 1609.344, 4: 0.001, 5: 0.01, 6: 1.0, 7: 1000.0, 10: 0.9144, 14: 0.1, 15: 10.0, 16: 100.0}
 CAPAS_PROPIAS = ("SCH_ILUMINACION", "SCH_AUDIO")           # lo que colocamos nosotros no es mobiliario del proyecto
 MAX_TEXTOS, MAX_POLI, MAX_BLOQUES, MAX_VERTICES = 8000, 6000, 8000, 200
+MAX_DEFINICIONES, MAX_ENTIDADES_DEFINICION, PRESUPUESTO_DEFINICIONES_S = 25, 150, 8.0     # definiciones sin rol que se abren, con tope de tiempo
+TIPO_ENTIDAD = {"AcDbCircle": "circulos", "AcDbArc": "arcos", "AcDbLine": "lineas", "AcDbPolyline": "poli", "AcDb2dPolyline": "poli",
+                "AcDbBlockReference": "bloques", "AcDbHatch": "rellenos", "AcDbText": "textos", "AcDbMText": "textos"}
 
 
 def _rechazada(ex) -> bool:
@@ -83,6 +86,30 @@ class Transformacion:
         pts = [self.punto(x, y) for x in (a[0], b[0]) for y in (a[1], b[1])]
         xs, ys = [p[0] for p in pts], [p[1] for p in pts]
         return min(xs), min(ys), max(xs), max(ys)
+
+
+def _leer_definicion(doc, nombre):
+    """Contenido de UNA definicion de bloque (no de cada instancia): nombres de bloques anidados, capas internas y conteo por tipo de entidad.
+    Es lo que permite reconocer un mueble anonimo (p. ej. un bloque con nombre generico que por dentro contiene el dibujo de una cama). Acotado en entidades."""
+    try:
+        defn = doc.Blocks.Item(nombre)
+        total = int(defn.Count)
+    except Exception:
+        return None
+    anidados, capas, n = set(), set(), {}
+    leidas = min(total, MAX_ENTIDADES_DEFINICION)
+    for j in range(leidas):
+        try:
+            sub = defn.Item(j)
+            on = str(sub.ObjectName)
+            tipo = TIPO_ENTIDAD.get(on, "otros")
+            n[tipo] = n.get(tipo, 0) + 1
+            capas.add(str(sub.Layer))
+            if on == "AcDbBlockReference":
+                anidados.add(str(sub.EffectiveName))
+        except Exception:
+            pass
+    return {"anidados": sorted(anidados)[:20], "capas": sorted(capas)[:20], "n": n, "total": total, "leidas": leidas}
 
 
 def _posicion_texto(e):
@@ -232,8 +259,32 @@ def leer(doc, args) -> dict:
                     pass
         except Exception:
             pass
+    # ---- definiciones de los bloques SIN rol conocido (por vocabulario): una lectura por definicion, las mas grandes primero, con presupuesto de tiempo
+    candidatas = {}
+    for b in bloques:
+        n = b["n"]
+        if n in candidatas or n.startswith("*"):
+            continue
+        w, h = (b["x1"] - b["x0"]) * unidad_m, (b["y1"] - b["y0"]) * unidad_m
+        if min(w, h) < 0.4:
+            continue
+        rol, ign = zonas_motor.rol_de_bloque(n, b["capa"], vocab, {})
+        if rol or ign:
+            continue
+        candidatas[n] = w * h
+    definiciones, t_def = {}, time.time()
+    orden = sorted(candidatas, key=lambda k: -candidatas[k])
+    for n in orden[:MAX_DEFINICIONES]:
+        if time.time() - t_def > PRESUPUESTO_DEFINICIONES_S or time.time() - t0 > limite:
+            avisos.append("Tiempo agotado leyendo definiciones de bloques: clasificacion parcial.")
+            break
+        info = _leer_definicion(doc, n)
+        if info:
+            definiciones[n] = info
+    if len(orden) > MAX_DEFINICIONES:
+        avisos.append(f"Solo se abrieron las {MAX_DEFINICIONES} definiciones mas grandes de {len(orden)} bloques sin rol conocido.")
     return {"ok": True, "plano": str(doc.Name), "unidad_m": unidad_m, "insunits": ins, "n_objetos": int(doc.ModelSpace.Count),
-            "textos": textos, "poligonos": poligonos, "bloques": bloques, "contenedores_leidos": len(contenedores),
+            "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "contenedores_leidos": len(contenedores),
             "elementos_en_contenedores": dentro, "avisos": avisos, "tiempo_lectura_s": round(time.time() - t0, 2)}
 
 

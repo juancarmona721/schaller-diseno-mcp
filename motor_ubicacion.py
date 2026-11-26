@@ -353,7 +353,7 @@ def receta_en_puntos(host: dict, op: dict) -> tuple[list, list]:
 
 
 # Atributos del perfil del proyecto que actuan como opciones por defecto de una receta (lo que se paso explicitamente tiene prioridad).
-OPCIONES_DEL_PERFIL = {"cabecera", "ancho_cama", "filas", "margen_lateral", "margen_pies", "u_pies", "puntos"}
+OPCIONES_DEL_PERFIL = {"cabecera", "cabecera_local", "ancho_cama", "filas", "margen_lateral", "margen_pies", "u_pies", "puntos"}
 
 RECETAS = {
     "en_puntos": (receta_en_puntos, "Producto en puntos exactos [[x,y],...] (confirmados en el perfil o dados a mano); opcional apuntar_a o rotacion_grados."),
@@ -366,13 +366,118 @@ RECETAS = {
 }
 
 
+# ----------------------------------------------------------------------------------------------------------------- marco local del anfitrion
+# Un anfitrion girado (por ejemplo 45 grados) tiene una caja envolvente mayor que su dibujo: calcular sobre ella pone las piezas mal.
+# Con la TRANSFORMACION de la instancia (punto de insercion, rotacion, escala, reflejo) y la caja LOCAL de su definicion, las recetas se
+# calculan en el marco del propio mueble (sus ejes) y el resultado se lleva a coordenadas del plano. Ahi "N" es el lado +Y del DIBUJO del bloque:
+# la cabecera de una cama es la misma sea cual sea el giro, el reflejo o la escala de la instancia.
+EPS_ANGULO = 1e-3
+
+
+def es_ortogonal(rot_rad: float) -> bool:
+    """True si el giro es multiplo de 90 grados (la caja envolvente coincide con el rectangulo orientado)."""
+    return abs(math.sin(2 * float(rot_rad))) < EPS_ANGULO
+
+
+def marco_desde_instancia(host: dict):
+    """(cx, cy, e1, e2, w, h) del anfitrion o None si no hay datos para construirlo.
+
+    e1, e2: ejes locales (unitarios, en el plano) hacia donde apuntan +X y +Y del dibujo del bloque; un reflejo invierte el sentido del eje.
+    Con `caja_local` (caja de la definicion en coordenadas del bloque) es exacto para cualquier giro; sin ella solo para giros ortogonales.
+    """
+    inst = host.get("instancia") or {}
+    if not inst or inst.get("normal_no_z"):
+        return None
+    r, sx, sy = float(inst.get("rot_rad", 0.0)), float(inst.get("sx", 1.0)), float(inst.get("sy", 1.0))
+    if sx == 0 or sy == 0:
+        return None
+    c, s_ = math.cos(r), math.sin(r)
+    e1 = (math.copysign(1.0, sx) * c, math.copysign(1.0, sx) * s_)
+    e2 = (-math.copysign(1.0, sy) * s_, math.copysign(1.0, sy) * c)
+    caja = inst.get("caja_local")
+    if caja:
+        x0, y0, x1, y1 = (float(v) for v in caja)
+        qx, qy = (x0 + x1) / 2, (y0 + y1) / 2
+        cx = inst["ins"][0] + c * sx * qx - s_ * sy * qy
+        cy = inst["ins"][1] + s_ * sx * qx + c * sy * qy
+        return cx, cy, e1, e2, abs(sx) * (x1 - x0), abs(sy) * (y1 - y0)
+    if not es_ortogonal(r):
+        return None
+    r_ = rect(host)                                           # giro de 0/90/180/270: la caja del plano ES el rectangulo orientado
+    cuarto = round(r / (math.pi / 2)) % 2
+    w, h = (r_["w"], r_["h"]) if cuarto == 0 else (r_["h"], r_["w"])
+    return r_["cx"], r_["cy"], e1, e2, w, h
+
+
+def _a_local(marco, x, y):
+    cx, cy, e1, e2, _w, _h = marco
+    dx, dy = x - cx, y - cy
+    return dx * e1[0] + dy * e1[1], dx * e2[0] + dy * e2[1]
+
+
+def _a_mundo(marco, a, b):
+    cx, cy, e1, e2, _w, _h = marco
+    return cx + a * e1[0] + b * e2[0], cy + a * e1[1] + b * e2[1]
+
+
+def _planear_en_marco_local(receta: str, host: dict, op: dict, muros, marco) -> tuple[list, list]:
+    _cx, _cy, e1, e2, w, h = marco
+    local = {"nombre": host.get("nombre", ""), "x0": -w / 2, "y0": -h / 2, "x1": w / 2, "y1": h / 2, "w": w, "h": h}
+    muros_local = [(*_a_local(marco, a, b), *_a_local(marco, c, d)) for a, b, c, d in (muros or [])]
+    opciones = {k: v for k, v in op.items() if not k.startswith("_") and k != "marco"}
+    plan, avisos = planear(receta, local, opciones, muros=muros_local)
+    salida = []
+    for c in plan:
+        x, y = _a_mundo(marco, c["x"], c["y"])
+        vx = math.cos(c["rot"]) * e1[0] + math.sin(c["rot"]) * e2[0]       # direccion local de la pieza -> direccion en el plano
+        vy = math.cos(c["rot"]) * e1[1] + math.sin(c["rot"]) * e2[1]
+        d = {**c, "x": round(x, 3), "y": round(y, 3), "rot": round(math.atan2(vy, vx), 5)}
+        if c.get("etiqueta"):
+            ex, ey = _a_mundo(marco, c["etiqueta"]["x"], c["etiqueta"]["y"])
+            d["etiqueta"] = {**c["etiqueta"], "x": round(ex, 3), "y": round(ey, 3)}
+        salida.append(d)
+    grados = math.degrees(math.atan2(e1[1], e1[0]))
+    return salida, [f"Anfitrion calculado en su marco local (giro {grados:.1f} grados): las orientaciones N/S/E/O de la receta son las de su dibujo."] + avisos
+
+
+def combinar_opciones(guardado: dict | None, explicitas: dict | None) -> dict:
+    """Atributos del perfil + opciones explicitas de la llamada. Lo explicito manda; y la cabecera explicita (en el plano) anula la cabecera_local
+    del perfil, mientras que una cabecera_local del perfil (mas reciente, en coordenadas del dibujo del bloque) anula una cabecera global antigua."""
+    g, e = dict(guardado or {}), dict(explicitas or {})
+    if "cabecera" in e or "cabecera_local" in e:
+        g.pop("cabecera", None)
+        g.pop("cabecera_local", None)
+    elif "cabecera_local" in g:
+        g.pop("cabecera", None)
+    return {**g, **e}
+
+
 def planear(receta: str, host: dict, opciones: dict | None = None, muros=None) -> tuple[list, list]:
-    """Calcula las colocaciones. `muros` = segmentos (x1,y1,x2,y2): permiten deducir la cabecera y orientar por rayos."""
+    """Calcula las colocaciones. `muros` = segmentos (x1,y1,x2,y2): permiten deducir la cabecera y orientar por rayos.
+
+    Si el anfitrion trae su `instancia` (punto de insercion, rotacion, escala, caja local) y esta girado en un angulo no ortogonal, o la
+    receta pide marco="local" (o el perfil trae cabecera_local), se calcula en el marco del propio mueble. Para giros ortogonales sin esa
+    peticion el resultado es el de siempre (caja del plano)."""
     if receta not in RECETAS:
         raise ErrorUbicacion(f"Receta '{receta}' desconocida. Opciones: {', '.join(RECETAS)}.")
     op = dict(opciones or {})
+    if "cabecera_local" in op:                                 # orientacion funcional guardada en coordenadas del dibujo del bloque
+        op["cabecera"] = op.pop("cabecera_local")
+        op["marco"] = "local"
+    inst = host.get("instancia")
+    if inst and receta != "en_puntos":
+        pide_local = op.get("marco") == "local" or not es_ortogonal(inst.get("rot_rad", 0.0))
+        if pide_local:
+            marco = marco_desde_instancia(host)
+            if marco is not None:
+                return _planear_en_marco_local(receta, host, op, muros, marco)
+            if op.get("marco") == "local":
+                raise ErrorUbicacion("El anfitrion esta girado en un angulo no ortogonal y no pude leer la caja de su definicion: no calculo sobre su caja envolvente.")
     op["_muros"] = list(muros or [])
     previos = []
+    if inst and receta != "en_puntos" and not es_ortogonal(inst.get("rot_rad", 0.0)):
+        previos.append(f"Anfitrion girado {math.degrees(inst['rot_rad']) % 360:.1f} grados y no pude leer la caja de su definicion: el calculo usa su caja "
+                       "envolvente en el plano y puede no coincidir con el mueble. Revisa el resultado.")
     if receta == "cama" and not op.get("cabecera"):
         lado, dist = inferir_cabecera(rect(host), op["_muros"])
         if not lado:

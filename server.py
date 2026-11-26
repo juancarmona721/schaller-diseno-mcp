@@ -11,8 +11,11 @@ from mcp.server.fastmcp import FastMCP
 
 import acad
 import fichas
+import metricas
+import salud
 import guia_diseno
 import motor_ubicacion
+import operaciones
 import productos
 import zonas_motor
 import referencias
@@ -32,6 +35,8 @@ CFG = cargar_config()
 _RAIZ_USUARIO = Path.home() / ".schaller-diseno"
 RUTA_AJUSTES = Path(os.environ.get("SCHALLER_AJUSTES") or _RAIZ_USUARIO / "ajustes.json")
 RUTA_USO = Path(os.environ.get("SCHALLER_USO") or _RAIZ_USUARIO / "logs" / "uso.jsonl")
+RUTA_CONEXION = Path(os.environ.get("SCHALLER_CONEXION") or _RAIZ_USUARIO / "estado_conexion.json")
+RUTA_OPERACIONES = Path(os.environ.get("SCHALLER_OPERACIONES") or _RAIZ_USUARIO / "operaciones")      # diario de operaciones de escritura
 
 
 def _ajustes() -> dict:
@@ -89,6 +94,26 @@ def _error(e: productos.HojaError) -> dict:
 def ping() -> str:
     """Comprueba que el servidor responde. Devuelve 'ok'."""
     return "ok"
+
+
+@mcp.tool()
+def estado_mcp(verificar: bool = False) -> dict:
+    """Estado del MCP (rapido, sin tocar AutoCAD): version, perfil de instalacion, capacidades, ultima conexion medida y entorno.
+
+    Por defecto NO se conecta a AutoCAD: devuelve lo ultimo medido y marca `estado_actual_verificado: false` (no afirmes que AutoCAD esta
+    disponible solo por eso). Con verificar=True hace UNA conexion real, guarda el resultado y lo devuelve actualizado. No recorre el plano.
+    """
+    verificado = None
+    if verificar:
+        t = time.perf_counter()
+        est = acad.estado(timeout_s=float(CFG.get("autocad", {}).get("timeout_s", 10)))
+        salud.guardar_conexion(RUTA_CONEXION, bool(est.get("ok")), (time.perf_counter() - t) * 1000, est.get("version_interna"))
+        verificado = salud.leer_ultima_conexion(RUTA_CONEXION) or {"estado": "no_disponible"}
+    try:
+        n = len(mcp._tool_manager.list_tools())
+    except Exception:
+        n = None
+    return salud.estado_basico(AQUI, RUTA_CONEXION, CARPETA_PERFILES, n, metricas.ACTIVA, verificado)
 
 
 @mcp.tool()
@@ -469,7 +494,8 @@ def nombre_visible(bloque: str) -> str:
 
 @mcp.tool()
 def ver_plano(destino_contiene: str | None = None, limite_objetos: int = 20000, max_espacios: int = 60) -> dict:
-    """SOLO LECTURA: resumen estructurado del plano. Llamarla ANTES de ubicar productos.
+    """SOLO LECTURA: resumen simple del plano (unidades, espacios con texto, bloques). Para DETECTAR ZONAS usa escanear_zonas (es la herramienta
+    principal y entiende planos sin rotulos); esta es un apoyo. No tomes capturas de pantalla: no hace falta.
 
     Devuelve las unidades (con aviso si no cuadran con el tamano de los bloques), los ESPACIOS detectados (poligonos cerrados con
     un texto dentro: nombre, limites x0,y0,x1,y1, ancho, alto, area y los productos que contiene), los bloques colocados por
@@ -511,6 +537,7 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
     res = zonas_motor.construir_zonas(raw, VOCAB, perfil, tipologia)
     res = {"ok": True, "plano": raw.get("plano"), "origen_datos": "lectura", "tiempo_lectura_s": raw.get("tiempo_lectura_s"),
            "leido": {"textos": len(raw["textos"]), "poligonos": len(raw["poligonos"]), "bloques": len(raw["bloques"]),
+                      "definiciones": len(raw.get("definiciones") or {}),
                      "elementos_en_contenedores": raw.get("elementos_en_contenedores", 0)},
            "avisos": raw.get("avisos", []), **res}
     try:
@@ -519,6 +546,25 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
     except OSError:
         pass
     return res
+
+
+def _diagnostico_sin_zonas(r: dict) -> dict:
+    """Explica por que no hubo zonas y que hacer, para que el asistente no tenga que adivinar ni tomar capturas."""
+    causas, pasos = [], []
+    if not r.get("textos_con_nombre_de_espacio"):
+        causas.append(f"Ninguno de los {r.get('textos', 0)} textos leidos es un nombre de espacio conocido (el plano no rotula ambientes).")
+    if not r.get("poligonos_con_area_de_recinto"):
+        causas.append(f"Ninguno de los {r.get('poligonos', 0)} poligonos cerrados tiene area de recinto (1.5 a 4000 m2).")
+    elif not r.get("recintos_candidatos"):
+        causas.append(f"Hay {r['poligonos_con_area_de_recinto']} poligonos con area de recinto, pero ninguno tiene tamano de habitacion (3 m2 o mas y lado de 1.2 m o mas), "
+                      "o estan duplicados o contienen a otros (contornos).")
+    if not r.get("bloques_con_rol"):
+        causas.append(f"Ninguno de los {r.get('bloques', 0)} bloques tiene un rol de mobiliario (nombres genericos o sin perfil del proyecto).")
+    pasos.append("Revisa `sugerencias_roles` y clasifica los bloques con perfil_proyecto(accion='rol'); vuelve a escanear con forzar_recarga=True.")
+    pasos.append("Si el plano trae las zonas como puntos conocidos, registralas con perfil_proyecto(accion='zona').")
+    pasos.append("Usa bloques_en_dibujo (lista de bloques con posicion y capa) y listar_anfitriones para elegir anfitriones sin depender de zonas.")
+    pasos.append("No tomes capturas ni controles el equipo: es lento y no hace falta.")
+    return {"por_que_no_hay_zonas": causas, "que_hacer": pasos}
 
 
 @mcp.tool()
@@ -533,15 +579,23 @@ def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = F
     Devuelve zonas (nombre, tipo_espacio, x, y, bbox, area_m2, origen, confianza, muebles), la tipologia detectada del proyecto y
     `sugerencias_roles`: bloques con nombre anonimo que conviene clasificar con perfil_proyecto(accion='rol').
     Cache por dibujo; forzar_recarga=True si cambiaste el plano sin cambiar su numero de objetos. tipologia fuerza el tipo de proyecto.
+    `vistas`: grupos de geometria separados dentro del dibujo (p. ej. dos plantas lado a lado); cada zona trae su `vista`. Una vista NO es un piso:
+    no asumas que la de la izquierda es la planta baja; el nivel solo se nombra si un texto cercano lo dice (`nombre`).
     En planos reales los nombres de espacios y bloques pueden ser datos del cliente: no los muestres en el chat sin necesidad.
-    AUTONOMIA: si el plano NO trae nombres de ambientes o hay bloques anonimos, NO le preguntes al usuario: decide el rol mas probable segun
-    tamano/posicion (sugerencias_roles), registralo con perfil_proyecto(accion='rol') y declaralo como supuesto al final. Despues pasa directo a
-    ubicar_varios con todo el diseno en UNA llamada. No llames herramientas en paralelo.
+    MODO: si el usuario pidio SOLO consultar, evaluar o escanear, no coloques nada. Si pidio colocar, no le preguntes: si el plano NO trae
+    nombres de ambientes o hay bloques anonimos, decide el rol mas probable segun tamano/posicion (sugerencias_roles), registralo con
+    perfil_proyecto(accion='rol'), declaralo como supuesto y coloca con UNA llamada a ubicar_varios. No llames herramientas en paralelo.
+    Con 0 zonas el resultado trae `diagnostico` (que se leyo, por que no hubo zonas y que hacer): sigue esa ruta y no tomes capturas.
     """
     res = _zonas_del_plano(forzar_recarga, tipologia)
     if isinstance(res, dict) and res.get("ok"):
-        res = {**res, "siguiente_paso": "NO preguntes al usuario. Clasifica tu los bloques sin rol (perfil_proyecto accion='rol'), elige anfitriones "
-                                        "(listar_anfitriones una sola vez) y coloca TODO con UNA llamada a ubicar_varios(ejecutar=True). Informa supuestos y omitidos al final."}
+        res = {**res, "siguiente_paso": "Si el usuario pidio COLOCAR: no preguntes; clasifica tu los bloques sin rol (perfil_proyecto accion='rol'), "
+                                        "elige anfitriones (listar_anfitriones una sola vez) y coloca TODO con UNA llamada a ubicar_varios(ejecutar=True); "
+                                        "informa supuestos y omitidos al final. Si pidio solo CONSULTAR o evaluar: no coloques nada. "
+                                        "Las zonas con candidato=true o confianza baja son HIPOTESIS (poligonos sin rotulo): usalas para decidir, pero declaralas como "
+                                        "supuesto y no las presentes como confirmadas. Los muebles con rol_origen='inferido' vienen de la definicion de su bloque."}
+        if not res.get("total"):
+            res["diagnostico"] = _diagnostico_sin_zonas(res.get("resumen_lectura") or {})
     return res
 
 
@@ -665,7 +719,7 @@ def buscar_en_plano(termino: str, tipo_espacio: str | None = None, limite: int =
     }
 
 
-@mcp.tool()
+# Desactivada por ahora (no expuesta al asistente): clasificaba mobiliario con criterios distintos al escaner y confundia.
 def extraer_patrones_diseno(destino_contiene: str | None = None) -> dict:
     """SOLO LECTURA: analiza un plano de diseno terminado para extraer el ADN de diseno de Schaller.
 
@@ -734,6 +788,59 @@ def ubicar_en_seleccion(intencion: str, ejecutar: bool = True) -> dict:
 # ---------------------------------------------------------------------------------------------------------------------
 # UBICACION POR ANFITRION (geometria real, sin coordenadas fijas): listar_anfitriones -> ubicar_en_anfitrion
 # ---------------------------------------------------------------------------------------------------------------------
+DISENO_ID_PREDETERMINADO = "d1"
+# Errores que ocurren ANTES de tocar el dibujo: la operacion queda "fallida" (nada se escribio). Cualquier otro fallo de una escritura
+# (tiempo agotado, error a mitad) deja la operacion "incierta" hasta reconciliarla con lo que haya en el dibujo.
+_ERRORES_SIN_ESCRITURA = {"dibujo_grande_requiere_confirmacion", "confirmacion_invalida", "bloques_no_disponibles", "autocad_no_abierto", "sin_pywin32",
+                          "sin_dibujo", "escritura_desactivada"}
+
+
+def _diario() -> operaciones.Diario:
+    return operaciones.Diario(RUTA_OPERACIONES)
+
+
+def _reconciliar_previas(nombre_plano: str, existentes: list) -> list[dict]:
+    """Cierra las operaciones que quedaron pendientes o inciertas en este documento, mirando lo que hay realmente en el dibujo (marcas XData)."""
+    d, doc, salida = _diario(), operaciones.doc_id(nombre_plano), []
+    for pend in d.pendientes(doc):
+        marcados = [{"item_id": e["item_id"], "handle": e.get("handle")} for e in existentes if e.get("op_id") == pend["op_id"]]
+        sin_marca = [e for e in existentes if not e.get("item_id") and e.get("handle")]
+        r = operaciones.reconciliar(pend.get("items", []), marcados, sin_marca, pend.get("previos", []))
+        d.finalizar(pend["op_id"], r["estado"], {k: r[k] for k in ("aplicados", "adoptables", "ambiguas", "pendientes")})
+        mal_capa = sum(1 for e in existentes if e.get("op_id") == pend["op_id"] and e.get("capa_incorrecta"))
+        salida.append({"op_id": pend["op_id"], "estado": r["estado"], "aplicadas": r["aplicados"], "faltan": len(r["pendientes"]),
+                       "adoptables_sin_marca": len(r["adoptables"]), "ambiguas": len(r["ambiguas"]),
+                       **({"con_capa_incorrecta": mal_capa} if mal_capa else {})})
+    return salida
+
+
+def _insertar_con_operacion(t: dict, nombre_plano: str, colocaciones: list, existentes: list, ejecutar: bool, confirmacion) -> tuple[dict, str | None]:
+    """Inserta dejando constancia: diario con la INTENCION antes de tocar el dibujo, XData en cada entidad y cierre con su estado real.
+    Ensayo: sin diario. Si no se puede abrir el diario, NO se escribe (la trazabilidad es obligatoria en las escrituras)."""
+    args = {"op": "insertar", "colocaciones": colocaciones, "ejecutar": bool(ejecutar), "confirmacion": confirmacion, "max_objetos": _max_objetos()}
+    if not ejecutar:
+        return acad.diseno(args, **t), None
+    op_id, d = operaciones.nuevo_operation_id(), _diario()
+    try:
+        d.iniciar(op_id, operaciones.doc_id(nombre_plano), operaciones.plan_hash(colocaciones), colocaciones,
+                  previos=[e["handle"] for e in existentes if e.get("handle")])
+    except OSError as e:
+        return {"ok": False, "error": "diario_no_disponible", "detalle": f"No pude abrir el diario de operaciones ({e.__class__.__name__}); no se escribio nada."}, None
+    args["operacion"] = {"id": op_id, "diario": str(RUTA_OPERACIONES), "cada": operaciones.CHECKPOINT_CADA}
+    r = acad.diseno(args, **t)
+    try:
+        if r.get("ok"):
+            info = r.get("operacion") or {}
+            d.finalizar(op_id, "aplicada", {"insertados": r.get("insertados"), "piezas_marcadas": info.get("piezas_marcadas"), "fallos_xdata": info.get("fallos_xdata")})
+        elif r.get("error") in _ERRORES_SIN_ESCRITURA:
+            d.finalizar(op_id, "fallida", {"error": r.get("error")})
+        else:
+            d.finalizar(op_id, "incierta", {"error": r.get("error")})
+    except OSError:
+        pass
+    return r, op_id
+
+
 @mcp.tool()
 @_serializado
 def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str | None = None) -> dict:
@@ -761,6 +868,12 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
     perfil = zonas_motor.cargar_perfil(CARPETA_PERFILES, ctx["plano"]) if ctx.get("plano") else zonas_motor.perfil_vacio()
     muros = [tuple(m) for m in ctx.get("muros", [])]
     existentes = list(ctx.get("existentes", []))
+    existentes_dibujo = list(existentes)                  # lo que habia en el dibujo (sin lo que sumen los items de este lote)
+    previas = _reconciliar_previas(ctx.get("plano") or "", existentes_dibujo) if ejecutar else []
+    if any(x["ambiguas"] for x in previas):
+        return {"ok": False, "error": "operacion_previa_ambigua", "operaciones_previas": previas,
+                "detalle": "Una operacion anterior quedo a medias y hay piezas sin marca que no se pueden atribuir con seguridad. "
+                           "Revisa el dibujo (o usa quitar_colocaciones) antes de volver a escribir aqui. No se escribio nada."}
     todas, detalle = [], []
     for it, h in zip(items, ctx.get("hosts", [])):
         r = {"receta": it.get("receta") if isinstance(it, dict) else None, "anfitrion": h.get("nombre")}
@@ -773,15 +886,16 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
         host = h["host"]
         guardado = {k: v for k, v in zonas_motor.atributos_de(perfil, host["nombre"]).items() if k in motor_ubicacion.OPCIONES_DEL_PERFIL}
         try:
-            plan, avisos = motor_ubicacion.planear(it["receta"], host, {**guardado, **(it.get("opciones") or {})}, muros=muros)
+            plan, avisos = motor_ubicacion.planear(it["receta"], host, motor_ubicacion.combinar_opciones(guardado, it.get("opciones")), muros=muros)
         except motor_ubicacion.ErrorUbicacion as e:
             detalle.append({**r, "estado": "omitido", "error": "no_se_puede_ubicar", "detalle": str(e)})
             continue
-        nuevas, omitidas = motor_ubicacion.sin_duplicados(plan, existentes)
-        existentes += [{"bloque": c["bloque"], "x": c["x"], "y": c["y"]} for c in nuevas]      # tambien contra lo del propio lote
+        plan = operaciones.asignar_ids(plan, it.get("diseno_id") or DISENO_ID_PREDETERMINADO, host.get("handle") or host["nombre"], it["receta"])
+        nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes)
+        existentes += [{"bloque": c["bloque"], "x": c["x"], "y": c["y"], "item_id": c["item_id"]} for c in nuevas]      # tambien contra lo del propio lote
         todas += nuevas
         detalle.append({**r, "estado": "ok", "a_colocar": len(nuevas), "ya_colocadas": len(omitidas), "avisos": avisos or None,
-                        "opciones_del_perfil": guardado or None,
+                        "cambiadas": cambiadas or None, "opciones_del_perfil": guardado or None,
                         "piezas": [[c["producto"], c["x"], c["y"], round(c["rot"], 3)] for c in nuevas]})
     por_producto = {}
     for c in todas:
@@ -791,15 +905,21 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
                "con_rotulo": sum(1 for c in todas if c.get("etiqueta")), "omitidos": [{"anfitrion": d["anfitrion"], "receta": d["receta"],
                                                                                         "motivo": d["detalle"]} for d in omitidos]}
     if not todas:
-        return {**resumen, "aviso": "No hay nada nuevo que colocar (todo ya estaba puesto o se omitio)."}
+        return {**resumen, "aviso": "No hay nada nuevo que colocar (todo ya estaba puesto o se omitio).", **({"operaciones_previas": previas} if previas else {})}
     if len(todas) > 400:
         return {**resumen, "ok": False, "error": "demasiados_objetos", "detalle": "Mas de 400 piezas en una llamada: divide el lote."}
-    r = acad.diseno({"op": "insertar", "colocaciones": todas, "ejecutar": bool(ejecutar), "confirmacion": confirmacion,
-                     "max_objetos": _max_objetos()}, **t)
+    r, op_id = _insertar_con_operacion(t, ctx.get("plano") or "", todas, existentes_dibujo, ejecutar, confirmacion)
+    extra = {}
+    if previas:
+        extra["operaciones_previas"] = previas
     if not r.get("ok"):
-        return {**resumen, **r, "ok": False}
+        return {**resumen, **r, "ok": False, **({"operacion_id": op_id} if op_id else {}), **extra}
     aviso = {} if ejecutar else {"aviso": "ENSAYO: no se modifico nada. Repite con ejecutar=True para colocarlo todo."}
-    return {**resumen, "insercion": {k: r.get(k) for k in ("insertados", "avisos", "bloques_importados", "escalas_aplicadas", "desviacion_max_m") if r.get(k)}, **aviso}
+    if ejecutar:
+        extra["operacion_id"] = op_id
+        if (r.get("operacion") or {}).get("fallos_xdata"):
+            extra["aviso_marcas"] = f"{r['operacion']['fallos_xdata']} pieza(s) se colocaron pero sin marca: no podran reconocerse por identidad al repetir."
+    return {**resumen, "insercion": {k: r.get(k) for k in ("insertados", "avisos", "bloques_importados", "escalas_aplicadas", "desviacion_max_m") if r.get(k)}, **extra, **aviso}
 
 
 @mcp.tool()
@@ -915,27 +1035,32 @@ def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccio
     guardado = {}
     if ctx.get("plano"):
         guardado = zonas_motor.atributos_de(zonas_motor.cargar_perfil(CARPETA_PERFILES, ctx["plano"]), host["nombre"])
-    opciones = {**{k: v for k, v in guardado.items() if k in motor_ubicacion.OPCIONES_DEL_PERFIL}, **(opciones or {})}   # lo explicito manda
+    opciones = motor_ubicacion.combinar_opciones({k: v for k, v in guardado.items() if k in motor_ubicacion.OPCIONES_DEL_PERFIL}, opciones)   # lo explicito manda
     try:
         plan, avisos = motor_ubicacion.planear(receta, host, opciones, muros=[tuple(m) for m in ctx.get("muros", [])])
     except motor_ubicacion.ErrorUbicacion as e:
         return {"ok": False, "error": "no_se_puede_ubicar", "detalle": str(e),
                 "anfitrion": {k: host[k] for k in ("nombre", "x0", "y0", "x1", "y1", "w", "h")}, "muros_cercanos": ctx.get("n_muros", 0)}
-    nuevas, omitidas = motor_ubicacion.sin_duplicados(plan, ctx.get("existentes", []))
+    plan = operaciones.asignar_ids(plan, DISENO_ID_PREDETERMINADO, host.get("handle") or host["nombre"], receta)
+    existentes_dibujo = list(ctx.get("existentes", []))
+    previas = _reconciliar_previas(ctx.get("plano") or "", existentes_dibujo) if ejecutar else []
+    if any(x["ambiguas"] for x in previas):
+        return {"ok": False, "error": "operacion_previa_ambigua", "operaciones_previas": previas,
+                "detalle": "Una operacion anterior quedo a medias y hay piezas sin marca que no se pueden atribuir con seguridad. No se escribio nada."}
+    nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes_dibujo)
     resumen = {"ok": True, "receta": receta, "anfitrion": {k: host[k] for k in ("nombre", "x0", "y0", "x1", "y1", "w", "h")},
                "muros_cercanos": ctx.get("n_muros", 0), "a_colocar": len(nuevas), "ya_colocadas_omitidas": len(omitidas),
                "opciones_del_perfil": {k: v for k, v in guardado.items() if k in motor_ubicacion.OPCIONES_DEL_PERFIL} or None,
-               "colocaciones": nuevas, "omitidas": omitidas, "avisos": avisos}
+               "colocaciones": nuevas, "omitidas": omitidas, "avisos": avisos, **({"cambiadas": cambiadas} if cambiadas else {})}
     if not nuevas:
         return {**resumen, "aviso": "Todo lo de esta receta ya esta colocado: no se hizo nada."}
     if len(nuevas) > int(_escritura().get("max_puntos", 100)):
         return {**resumen, "ok": False, "error": "demasiados_objetos"}
-    r = acad.diseno({"op": "insertar", "colocaciones": nuevas, "ejecutar": bool(ejecutar), "confirmacion": confirmacion,
-                     "max_objetos": _max_objetos()}, **t)
+    r, op_id = _insertar_con_operacion(t, ctx.get("plano") or "", nuevas, existentes_dibujo, ejecutar, confirmacion)
     if not r.get("ok"):
-        return {**resumen, **r, "ok": False}
+        return {**resumen, **r, "ok": False, **({"operacion_id": op_id} if op_id else {})}
     aviso = {} if ejecutar else {"aviso": "ENSAYO: no se modifico nada. Revisa las colocaciones y repite con ejecutar=True."}
-    return {**resumen, "insercion": r, **aviso}
+    return {**resumen, "insercion": r, **({"operacion_id": op_id} if op_id else {}), **({"operaciones_previas": previas} if previas else {}), **aviso}
 
 
 
@@ -1309,8 +1434,9 @@ def zoom_extents() -> dict:
 def bloques_en_dibujo(limite_objetos: int = 5000) -> dict:
     """Lista los bloques insertados en el espacio Modelo del dibujo abierto (solo lectura).
 
-    Devuelve, por nombre de bloque: cantidad y capas. Recorre hasta `limite_objetos` objetos; si el dibujo
-    tiene mas, `truncado` sera true. Usar solo con dibujos de prueba, no con planos de clientes.
+    Devuelve, por nombre de bloque: cantidad y capas. Util para ver que hay cuando el escaneo no logra clasificar el mobiliario. Recorre hasta
+    `limite_objetos` objetos; si el dibujo tiene mas, `truncado` sera true. Los nombres pueden ser datos del cliente: no los muestres en el chat
+    sin necesidad.
     """
     return acad.leer_bloques(limite=limite_objetos, **_tiempos())
 
@@ -1415,6 +1541,7 @@ def _activar_registro_de_uso() -> None:
         datos = _resultado_como_dict(res)
         ok = not (isinstance(datos, dict) and datos.get("ok") is False)
         _registrar_uso(name, arguments, (time.time() - t0) * 1000, ok, None if ok else (datos.get("error") if isinstance(datos, dict) else None))
+        metricas.volcar(contexto={"herramienta": name})      # apagada: no hace nada
         return res
     mcp._tool_manager.call_tool = con_registro
 

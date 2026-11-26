@@ -159,7 +159,8 @@ def analizar(doc, limite=20000, max_espacios=60, r=lambda f: f()) -> dict:
         "bloques_total": len(bloques), "bloques_por_nombre": dict(por_nombre.most_common(60)),
         "bloques_fuera_de_espacios": dict(fuera.most_common(30)),
         "nota": "Los espacios se detectan como poligonos cerrados con un texto dentro (plantas simples). En planos reales con "
-                "paredes sueltas puede no detectarse ninguno: en ese caso hay que confirmar los espacios con la persona. "
+                "paredes sueltas puede no detectarse ninguno: en ese caso usa escanear_zonas (recintos candidatos y roles inferidos) y declara tus supuestos; "
+                "no preguntes ni tomes capturas de pantalla. "
                 "Los nombres pueden ser datos del cliente: no mostrarlos en el chat si el plano es real.",
     }
 

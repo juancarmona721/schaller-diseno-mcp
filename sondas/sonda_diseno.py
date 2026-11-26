@@ -19,6 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # -I no incluye
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ni la raiz del proyecto
 
 import motor_ubicacion  # noqa: E402
+import operaciones  # noqa: E402
+from metricas import llamada, etapa, resumen  # noqa: E402
 
 CAPAS_SCH = ("SCH_ILUMINACION", "SCH_AUDIO")
 FILTRO_MUROS = "*MURO*,*WALL*,*TABIQUE*,*PARED*"
@@ -75,6 +77,7 @@ def _conjunto(doc, nombre, modo, p1, p2, tipos, valores):
 
 
 def _bbox(e):
+    llamada("GetBoundingBox")
     a, b = e.GetBoundingBox()
     return float(a[0]), float(a[1]), float(b[0]), float(b[1])
 
@@ -84,6 +87,168 @@ def _host_dict(e):
     return {"nombre": str(e.EffectiveName), "capa": str(e.Layer), "x0": round(x0, 3), "y0": round(y0, 3),
             "x1": round(x1, 3), "y1": round(y1, 3), "w": round(x1 - x0, 3), "h": round(y1 - y0, 3),
             "rotacion_grados": round(math.degrees(float(e.Rotation)), 2), "handle": str(e.Handle)}
+
+
+def _leer_marca(e):
+    """(op_id, item_id) del XData SCHALLER de una entidad, o (None, None) si no la puso este MCP."""
+    try:
+        llamada("GetXData")
+        _tipos, datos = e.GetXData(operaciones.APP_XDATA)
+        v = [str(x) for x in datos]
+        return (v[1] if len(v) > 1 else None), (v[2] if len(v) > 2 else None)
+    except Exception:
+        return None, None
+
+
+def _marcar(ref, op_id, item_id, idx):
+    """Escribe el XData de una entidad en UNA llamada: [app, operacion, pieza, indice, esquema]. Un fallo no aborta el lote: devuelve False."""
+    try:
+        import pythoncom
+        from win32com.client import VARIANT
+        tipos = VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I2, (1001, 1000, 1000, 1070, 1070))
+        datos = VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_VARIANT, (operaciones.APP_XDATA, str(op_id), str(item_id), int(idx), operaciones.ESQUEMA_XDATA))
+        ref.SetXData(tipos, datos)
+        llamada("SetXData")
+        return True
+    except Exception:
+        return False
+
+
+class _CapaActiva:
+    """Pone como capa activa la de destino ANTES de insertar: la entidad nace en su capa y no hay un instante en que quede en la 0 sin marca.
+    Ahorra ademas una asignacion de capa por pieza. Si no se puede (capa congelada, etc.) devuelve False y se asigna la capa a mano como antes.
+    La capa activa original se restaura siempre (tambien si la insercion falla a mitad)."""
+
+    def __init__(self, doc):
+        self.doc, self.original, self.actual = doc, None, None
+        try:
+            self.original = str(doc.ActiveLayer.Name)
+        except Exception:
+            pass
+
+    def activar(self, capa) -> bool:
+        if self.actual == capa:
+            return True
+        try:
+            self.doc.ActiveLayer = self.doc.Layers.Item(capa)
+            llamada("ActiveLayer")
+            self.actual = capa
+            return True
+        except Exception:
+            self.actual = None
+            return False
+
+    def restaurar(self):
+        if self.original is None:
+            return
+        try:
+            self.doc.ActiveLayer = self.doc.Layers.Item(self.original)
+        except Exception:
+            pass
+
+
+_CAPA_ACTIVA = None
+
+
+def _restaurar_capa_activa():
+    if _CAPA_ACTIVA is not None:
+        _CAPA_ACTIVA.restaurar()
+
+
+def _marcadas_fuera_de_capas_propias(doc):
+    """Piezas con marca de este MCP que NO estan en las capas SCH_* (p. ej. si algo fallo al asignar la capa): una consulta filtrada por XData (~10 ms)."""
+    salida = []
+    try:
+        ss = _conjunto(doc, "SS_DISENO_MARC", 5, None, None, [0, 1001], ["INSERT", operaciones.APP_XDATA])
+    except Exception:
+        return salida
+    try:
+        for i in range(ss.Count):
+            try:
+                e = ss.Item(i)
+                capa = str(e.Layer)
+                if capa in CAPAS_SCH:
+                    continue
+                p = e.InsertionPoint
+                d = _existente(e, str(e.EffectiveName), p[0], p[1])
+                d["capa_incorrecta"] = capa
+                salida.append(d)
+            except Exception:
+                pass
+    finally:
+        ss.Delete()
+    return salida
+
+
+def _existente(e, n, x, y):
+    """Una pieza ya colocada: bloque, posicion, handle y, si la puso este MCP, su identidad logica y su operacion."""
+    d = {"bloque": n, "x": round(x, 3), "y": round(y, 3)}
+    try:
+        d["handle"] = str(e.Handle)
+    except Exception:
+        pass
+    op_id, item_id = _leer_marca(e)
+    if item_id:
+        d["item_id"], d["op_id"] = item_id, op_id
+    return d
+
+
+_CAJAS_LOCALES: dict = {}
+
+
+def _caja_local_definicion(doc, nombre, max_entidades=400):
+    """Caja (x0, y0, x1, y1) de la DEFINICION de un bloque en sus propias coordenadas: union de las cajas de sus entidades. Una vez por definicion
+    (cache). None si no se puede leer; entonces las recetas no calculan sobre la caja envolvente de un mueble girado: avisan."""
+    if nombre in _CAJAS_LOCALES:
+        return _CAJAS_LOCALES[nombre]
+    caja = None
+    try:
+        defn = doc.Blocks.Item(nombre)
+        x0 = y0 = 1e300
+        x1 = y1 = -1e300
+        hay = False
+        for j in range(min(int(defn.Count), max_entidades)):
+            try:
+                a, b = defn.Item(j).GetBoundingBox()
+                llamada("GetBoundingBox")
+                x0, y0, x1, y1 = min(x0, a[0]), min(y0, a[1]), max(x1, b[0]), max(y1, b[1])
+                hay = True
+            except Exception:
+                pass                                                    # entidades sin caja (puntos, atributos): se ignoran
+        if hay and x1 > x0 and y1 > y0:
+            caja = [round(x0, 5), round(y0, 5), round(x1, 5), round(y1, 5)]
+    except Exception:
+        caja = None
+    _CAJAS_LOCALES[nombre] = caja
+    return caja
+
+
+def _instancia(doc, e):
+    """Transformacion de una instancia de bloque: punto de insercion, giro, escala X/Y y, si el giro NO es ortogonal, la caja local de su definicion
+    (para un giro de 0/90/180/270 la caja del plano ya es el rectangulo orientado y no hace falta leer la definicion)."""
+    try:
+        ip = e.InsertionPoint
+        rot = float(e.Rotation)
+        sx, sy = float(e.XScaleFactor), float(e.YScaleFactor)
+        llamada("Instancia")
+    except Exception:
+        return None
+    inst = {"ins": [round(float(ip[0]), 5), round(float(ip[1]), 5)], "rot_rad": round(rot, 6), "sx": sx, "sy": sy}
+    try:
+        if abs(float(e.Normal[2])) < 0.999 or float(e.Normal[2]) < 0:
+            inst["normal_no_z"] = True                                  # bloque en otro plano o con normal invertida: no se calcula en marco local
+    except Exception:
+        pass
+    if not motor_ubicacion.es_ortogonal(rot) and not inst.get("normal_no_z"):
+        try:
+            nombre = str(e.Name)                                        # el nombre REAL de la definicion (en los dinamicos es *U..., no EffectiveName)
+        except Exception:
+            nombre = None
+        if nombre:
+            caja = _caja_local_definicion(doc, nombre)
+            if caja:
+                inst["caja_local"] = caja
+    return inst
 
 
 def _inserts(doc):
@@ -187,6 +352,9 @@ def op_contexto(doc, args):
     if err:
         return err
     host = _host_dict(host_ent)
+    inst = _instancia(doc, host_ent)
+    if inst:
+        host["instancia"] = inst
     r = float(args.get("radio_muros") or 8.0)
     muros = []
     # OJO: la seleccion por ventana de AutoCAD solo ve lo que esta en la VISTA ACTUAL (da 0 si el muro esta fuera de pantalla).
@@ -222,11 +390,12 @@ def op_contexto(doc, args):
                 else:
                     p = e.InsertionPoint
                     x, y = p[0], p[1]
-                existentes.append({"bloque": n, "x": round(x, 3), "y": round(y, 3)})
+                existentes.append(_existente(e, n, x, y))
             except Exception:
                 pass
     finally:
         ss.Delete()
+    existentes += _marcadas_fuera_de_capas_propias(doc)
     return {"ok": True, "plano": str(doc.Name), "anfitrion": host, "muros": muros[:MAX_SEGMENTOS], "n_muros": len(muros), "existentes": existentes,
             "objetos_en_modelo": int(doc.ModelSpace.Count)}
 
@@ -256,7 +425,7 @@ def op_contexto_varios(doc, args):
                     else:
                         p = e.InsertionPoint
                         x, y = p[0], p[1]
-                    existentes.append({"bloque": n, "x": round(x, 3), "y": round(y, 3)})
+                    existentes.append(_existente(e, n, x, y))
                 except Exception:
                     pass
             else:
@@ -286,6 +455,9 @@ def op_contexto_varios(doc, args):
                         cand.sort(key=lambda c: math.hypot((_bbox(c)[0] + _bbox(c)[2]) / 2 - centro[0], (_bbox(c)[1] + _bbox(c)[3]) / 2 - centro[1]))
                 if cand:
                     h = _host_dict(cand[0])
+                    inst = _instancia(doc, cand[0])
+                    if inst:
+                        h["instancia"] = inst
                     cache[clave] = {"host": h}
                     ventanas.append((h["x0"] - r, h["y0"] - r, h["x1"] + r, h["y1"] + r))
         resultados.append({"nombre": nombre, **cache[clave]})
@@ -306,6 +478,7 @@ def op_contexto_varios(doc, args):
                 pass
     finally:
         ss.Delete()
+    existentes += _marcadas_fuera_de_capas_propias(doc)
     return {"ok": True, "plano": str(doc.Name), "hosts": resultados, "muros": muros[:MAX_SEGMENTOS], "n_muros": len(muros),
             "existentes": existentes, "objetos_en_modelo": int(doc.ModelSpace.Count)}
 
@@ -408,11 +581,34 @@ def op_insertar(acad, doc, args):
     if aviso_u:
         avisos.append(aviso_u)
     escalas = {}    # bloque -> (escala, como). La primera copia de cada bloque se inserta a 1 y se MIDE: lo que se ve es lo que cuenta.
+    operacion = args.get("operacion") or None
+    diario = None
+    marcadas, fallos_xdata = 0, 0
+    if operacion:
+        try:
+            doc.RegisteredApplications.Add(operaciones.APP_XDATA)        # una vez por documento; si ya esta registrada, AutoCAD avisa y se ignora
+        except Exception:
+            pass
+        if operacion.get("diario"):
+            diario = operaciones.Diario(operacion["diario"], operacion.get("cada") or operaciones.CHECKPOINT_CADA)
+    global _CAPA_ACTIVA
+    capa_activa = _CAPA_ACTIVA = _CapaActiva(doc)
+    _etapa_insercion = etapa("insercion")
+    _etapa_insercion.__enter__()
     for c in cols:
         nombre = c["bloque"]
         e = escalas[nombre][0] if nombre in escalas else 1.0
+        en_su_capa = capa_activa.activar(c["capa"])
         ref = reintentar(lambda: ms.InsertBlock(pt(c["x"], c["y"]), nombre, e, e, e, float(c["rot"])))
-        ref.Layer = c["capa"]
+        llamada("InsertBlock")
+        if operacion:                                     # lo PRIMERO tras insertar: la pieza queda reconocible aunque algo falle despues
+            if _marcar(ref, operacion["id"], c.get("item_id") or "", marcadas):
+                marcadas += 1
+            else:
+                fallos_xdata += 1
+        if not en_su_capa:
+            ref.Layer = c["capa"]
+            llamada("Layer")
         if nombre not in escalas:
             a0 = reintentar(lambda: _bbox(ref))
             esc, como = motor_ubicacion.escala_por_medida(max(a0[2] - a0[0], a0[3] - a0[1]), c.get("tam_m"), unidad_m, float(c["escala"]))
@@ -436,15 +632,32 @@ def op_insertar(acad, doc, args):
         if c.get("ancla") != "bbox":
             desv_max = max(desv_max, desv * unidad_m)
         handles.append(str(ref.Handle))
+        llamada("Handle")
         et = c.get("etiqueta")
         if et:
             t = reintentar(lambda: ms.AddText(et["texto"], pt(et["x"], et["y"]), float(et["altura"])))
             t.Layer = et["capa"]
             t.Color = int(et["color"])
             handles.append(str(t.Handle))
-    return {"ok": True, "ejecutado": True, "insertados": len(cols), "handles": handles, "avisos": avisos,
-            "bloques_importados": origenes, "escalas_aplicadas": {k: v[0] for k, v in escalas.items()},
-            "desviacion_max_m": round(desv_max, 3), "objetos_en_modelo": total}
+            llamada("AddText")
+            llamada("Layer")
+            llamada("Color")
+            llamada("Handle")
+            if operacion and not _marcar(t, operacion["id"], (c.get("item_id") or "") + "#rotulo", marcadas):
+                fallos_xdata += 1
+        if diario:
+            diario.checkpoint(operacion["id"], len(handles))              # solo escribe cada N piezas
+    _etapa_insercion.__exit__(None, None, None)
+    capa_activa.restaurar()
+    res = {"ok": True, "ejecutado": True, "insertados": len(cols), "handles": handles, "avisos": avisos,
+           "bloques_importados": origenes, "escalas_aplicadas": {k: v[0] for k, v in escalas.items()},
+           "desviacion_max_m": round(desv_max, 3), "objetos_en_modelo": total}
+    if operacion:
+        res["operacion"] = {"id": operacion["id"], "piezas_marcadas": marcadas, "fallos_xdata": fallos_xdata}
+    m = resumen()
+    if m:                                   # solo con SCHALLER_TRACE=1; apagada devuelve None y el resultado queda IDENTICO al de antes
+        res["_metricas"] = m
+    return res
 
 
 def op_diagnostico(acad, doc):
@@ -536,6 +749,7 @@ def main():
             return reintentar(lambda: op_diagnostico(acad, doc))
         return {"ok": False, "error": "op_desconocida", "detalle": str(op)}
     except Exception as e:
+        _restaurar_capa_activa()
         return {"ok": False, "error": "fallo_diseno", "detalle": f"{type(e).__name__}: {e}",
                 "aviso": "Si era una insercion, revisa el dibujo: puede haber quedado algo a medias (Ctrl+Z lo deshace)."}
 

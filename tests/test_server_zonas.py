@@ -389,3 +389,46 @@ def test_el_registro_marca_como_fallo_lo_que_devuelve_ok_false(monkeypatch, tmp_
 def test_ver_uso_sin_registro_no_falla(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "RUTA_USO", tmp_path / "no_existe.jsonl")
     assert server.ver_uso() == {"ok": True, "llamadas": 0, "detalle": "Todavia no hay registro de uso."}
+
+
+# ------------------------------------------------------------------------------------------------ diagnostico con 0 zonas y modo consulta
+def test_sin_zonas_el_escaneo_explica_por_que_y_que_hacer(autocad, monkeypatch):
+    res = {"ok": True, "total": 0, "zonas": [], "resumen_lectura": {"textos": 37, "textos_con_nombre_de_espacio": 0, "poligonos": 199,
+                                                                    "poligonos_con_area_de_recinto": 0, "bloques": 418, "bloques_con_rol": 0, "bloques_sin_rol": 400}}
+    monkeypatch.setattr(server, "_zonas_del_plano", lambda *a, **k: res)
+    r = server.escanear_zonas()
+    d = r["diagnostico"]
+    assert len(d["por_que_no_hay_zonas"]) == 3 and "37" in d["por_que_no_hay_zonas"][0] and "199" in d["por_que_no_hay_zonas"][1]
+    assert any("capturas" in p for p in d["que_hacer"])
+    assert "CONSULTAR" in r["siguiente_paso"] and "no coloques nada" in r["siguiente_paso"]
+
+
+def test_con_zonas_no_hay_diagnostico(autocad, monkeypatch):
+    monkeypatch.setattr(server, "_zonas_del_plano", lambda *a, **k: {"ok": True, "total": 2, "zonas": [{}, {}]})
+    assert "diagnostico" not in server.escanear_zonas()
+
+
+def test_construir_zonas_cuenta_lo_que_leyo():
+    import zonas_motor
+    raw = {"unidad_m": 1.0, "textos": [{"t": "SALA", "x": 1, "y": 1, "capa": "T"}, {"t": "A", "x": 5, "y": 5, "capa": "T"}], "poligonos": [], "bloques": []}
+    r = zonas_motor.construir_zonas(raw, zonas_motor.cargar_vocabulario())["resumen_lectura"]
+    assert r["textos"] == 2 and r["textos_con_nombre_de_espacio"] == 1 and r["poligonos_con_area_de_recinto"] == 0
+
+
+def test_ninguna_herramienta_manda_a_confirmar_con_la_persona_fuera_de_borrar_codigos_o_referencias():
+    """Las descripciones no deben contradecir la autonomia: solo se pregunta para borrar, el codigo de AutoCAD, cotizaciones o contradicciones."""
+    import asyncio
+    import re
+    herramientas = asyncio.run(server.mcp.list_tools())
+    permitido = re.compile(r"codigo|c[oó]digo|borr|cotizaci|referencia|candado|confirmacion|confirmado_por_usuario|quitar", re.I)
+    for t in herramientas:
+        texto = t.description or ""
+        if re.search(r"con la persona|a la persona|al usuario", texto, re.I) and re.search(r"confirm|pregunt|pide|pedir", texto, re.I):
+            assert permitido.search(texto), f"{t.name}: manda a confirmar o preguntar sin ser borrado, codigo de AutoCAD ni referencias"
+        assert "hay que confirmar los espacios" not in texto
+
+
+def test_la_guia_explica_los_planos_sin_rotulos_y_los_anfitriones_girados():
+    import guia_diseno
+    for frase in ("PLANOS SIN ROTULOS", "rol_origen", "NO tomes capturas", "ANFITRION GIRADO", "cabecera_local", "VARIAS PLANTAS", "NO es un piso"):
+        assert frase in guia_diseno.FLUJO, frase
