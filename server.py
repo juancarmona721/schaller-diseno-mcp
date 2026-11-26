@@ -849,7 +849,8 @@ def _insertar_con_operacion(t: dict, nombre_plano: str, colocaciones: list, exis
 @mcp.tool()
 @_serializado
 def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str | int | None = None, reemplazar: bool = False) -> dict:
-    """UBICA TODO UN DISENO EN UNA SOLA LLAMADA (rapido): varias ubicaciones sobre varios anfitriones, leyendo el plano UNA vez.
+    """UBICA TODO UN DISENO EN UNA SOLA LLAMADA (rapido): varias ubicaciones sobre varios anfitriones, leyendo el plano UNA vez. TAMBIEN CAMBIA un producto
+    ya colocado (reemplazar=True): NO hace falta borrar nada para cambiar de producto.
 
     items = [{"receta": ..., "anfitrion": "<bloque>", "opciones": {...}?, "cerca_de": [x, y]?}, ...]; mismas recetas y opciones que
     ubicar_en_anfitrion. Es ~10 veces mas rapido que llamar a ubicar_en_anfitrion una por una (cada una releia el plano entero) y no deja
@@ -914,12 +915,16 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
     resumen = {"ok": True, "items": detalle, "a_colocar": len(todas), "por_producto": por_producto,
                "con_rotulo": sum(1 for c in todas if c.get("etiqueta")), "omitidos": [{"anfitrion": d["anfitrion"], "receta": d["receta"],
                                                                                         "motivo": d["detalle"]} for d in omitidos]}
+    pista_cambio = ({"siguiente_paso": "Hay posiciones que YA tienen otro producto (ver `cambiadas`). Para cambiarlas repite este mismo ubicar_varios con "
+                                       "reemplazar=True: retira solo esa pieza (si es del MCP) y coloca la nueva. NO borres todo con quitar_colocaciones."}
+                    if not reemplazar and any(d.get("cambiadas") for d in detalle) else {})
     if not todas:
-        return {**resumen, "aviso": "No hay nada nuevo que colocar (todo ya estaba puesto o se omitio).", **({"operaciones_previas": previas} if previas else {})}
+        return {**resumen, "aviso": "No hay nada nuevo que colocar (todo ya estaba puesto o se omitio).", **pista_cambio,
+                **({"operaciones_previas": previas} if previas else {})}
     if len(todas) > 400:
         return {**resumen, "ok": False, "error": "demasiados_objetos", "detalle": "Mas de 400 piezas en una llamada: divide el lote."}
     r, op_id = _insertar_con_operacion(t, ctx.get("plano") or "", todas, existentes_dibujo, ejecutar, confirmacion, u, reemplazos)
-    extra = {}
+    extra = {**pista_cambio}
     if reemplazos:
         extra["reemplazos"] = {"piezas_a_retirar" if not ejecutar else "retiradas": len(reemplazos),
                                **({"no_retiradas": (r.get("reemplazos") or {}).get("no_retirados")} if (r.get("reemplazos") or {}).get("no_retirados") else {})}
@@ -982,6 +987,8 @@ def quitar_colocaciones(ejecutar: bool = False, confirmacion: str | int | None =
                         bloque_contiene: str | None = None) -> dict:
     """BORRA lo que este MCP coloco: SOLO las entidades de las capas SCH_ILUMINACION y SCH_AUDIO (luminarias, parlantes, tiras, rotulos).
     Nunca toca otras capas (mobiliario, arquitectura, vegetacion) ni borra las capas. Sirve para repetir pruebas.
+    NO la uses para CAMBIAR el producto de una posicion ni para rehacer un cambio de diseno: eso es ubicar_varios(reemplazar=True), que retira solo la
+    pieza anterior (no hace falta borrar todo). Para quitar solo una parte usa operacion_id o bloque_contiene.
 
     BORRADO PARCIAL (no hace falta borrar todo para quitar una cosa): `operacion_id` borra solo lo de esa operacion (el id lo devuelve ubicar_varios
     como `operacion_id`) y `bloque_contiene` solo los bloques cuyo nombre contiene ese texto (con sus rotulos). Se pueden combinar. Si solo quieres

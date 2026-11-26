@@ -207,3 +207,14 @@ def test_el_registro_de_uso_guarda_el_detalle_de_los_fallos(monkeypatch, tmp_pat
     asyncio.run(server.mcp.call_tool("ubicar_varios", {"items": [{"receta": "cama", "anfitrion": "X"}]}))
     r = server.ver_uso()
     assert r["recientes"][-1]["error"] == "fallo_diseno" and "parametros" in r["recientes"][-1]["detalle"]
+
+
+def test_las_descripciones_dirigen_al_reemplazo_y_el_resultado_trae_la_pista(monkeypatch):
+    import asyncio
+    d = {t.name: (t.description or "") for t in asyncio.run(server.mcp.list_tools())}
+    assert "reemplazar=True" in d["ubicar_varios"].split("\n")[0] + d["ubicar_varios"].split("\n")[1]       # en las primeras lineas, no escondido al final
+    assert "ubicar_varios(reemplazar=True)" in d["quitar_colocaciones"] and "NO la uses para CAMBIAR" in d["quitar_colocaciones"]
+    c0 = _colocacion_actual(monkeypatch)
+    _montar(monkeypatch, existentes=[{"item_id": c0["item_id"], "bloque": "OTRO", "x": c0["x"], "y": c0["y"], "handle": "A1", "op_id": "op_x"}])
+    r = server.ubicar_varios([ITEM], ejecutar=True)
+    assert "reemplazar=True" in r["siguiente_paso"] and "NO borres todo" in r["siguiente_paso"]
