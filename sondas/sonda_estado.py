@@ -54,7 +54,7 @@ def main():
                 pass
             ss = doc.SelectionSets.Add(nombre_ss)
             try:
-                ss.Select(5, None, None, VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I2, (8,)), VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_VARIANT, ("SCH_ILUMINACION,SCH_AUDIO",)))
+                ss.Select(5, None, None, VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I2, (8,)), VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_VARIANT, ("SCH_ILUMINACION,SCH_AUDIO,SCH_REVISION",)))
                 return int(ss.Count)
             finally:
                 ss.Delete()

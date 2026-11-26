@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 import zonas_motor  # noqa: E402
 
 UNIDAD_A_METROS = {1: 0.0254, 2: 0.3048, 3: 1609.344, 4: 0.001, 5: 0.01, 6: 1.0, 7: 1000.0, 10: 0.9144, 14: 0.1, 15: 10.0, 16: 100.0}
-CAPAS_PROPIAS = ("SCH_ILUMINACION", "SCH_AUDIO")           # lo que colocamos nosotros no es mobiliario del proyecto
+CAPAS_PROPIAS = ("SCH_ILUMINACION", "SCH_AUDIO", "SCH_REVISION")           # lo que colocamos nosotros no es mobiliario NI arquitectura del proyecto:
+# los contornos de revision (SCH_REVISION) se releian como poligonos y textos del plano y contaminaban el escaneo siguiente (bucle de retroalimentacion)
 MAX_TEXTOS, MAX_POLI, MAX_BLOQUES, MAX_VERTICES = 8000, 6000, 8000, 200
 MAX_LINEAS, PRESUPUESTO_CONTENEDORES_S, MAX_ENTIDADES_CONTENEDOR = 15000, 40.0, 9000   # lineas y trazos de bloques contenedor (la arquitectura suele ir dentro de uno)
 PRESUPUESTO_TEXTOS_S = 20.0                      # los textos son lo mas caro de leer (varias llamadas COM cada uno)
@@ -322,7 +323,7 @@ def leer(doc, args) -> dict:
     id_ident = Transformacion()
 
     def agregar_texto(e, tr):
-        if len(textos) >= MAX_TEXTOS:
+        if len(textos) >= MAX_TEXTOS or str(e.Layer) in CAPAS_PROPIAS:
             return
         s = zonas_motor.limpiar_texto(e.TextString)
         if s:
@@ -331,7 +332,7 @@ def leer(doc, args) -> dict:
             textos.append({"t": s, "x": round(x, 3), "y": round(y, 3), "capa": str(e.Layer)})
 
     def agregar_poligono(e, tr):
-        if len(poligonos) >= MAX_POLI:
+        if len(poligonos) >= MAX_POLI or str(e.Layer) in CAPAS_PROPIAS:
             return
         pts = _poligono(e, tr)
         if pts:
