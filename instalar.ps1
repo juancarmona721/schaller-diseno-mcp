@@ -104,6 +104,15 @@ Paso "Instalando dependencias (puede tardar un minuto)..."
 & $VenvPython -m pip install -q --disable-pip-version-check -r (Join-Path $InstallDir "requirements.txt")
 if ($LASTEXITCODE -ne 0) { Fallo "Fallo la instalacion de dependencias. Revisa tu conexion a internet." }
 
+# Geometria avanzada (Shapely): OPCIONAL. Si falla (sin rueda binaria para esta version de Python, sin internet...), el MCP funciona igual sin ella.
+$avanzado = Join-Path $InstallDir "requirements-avanzado.txt"
+if (Test-Path $avanzado) {
+    & $VenvPython -m pip install -q --disable-pip-version-check --only-binary :all: -r $avanzado
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "   (Opcional) No se pudo instalar la geometria avanzada (Shapely): el MCP funciona igual, pero no reconstruira habitaciones desde los muros." -ForegroundColor Yellow
+    }
+}
+
 # 4. Verificar que el servidor arranca ----------------------------------------------
 if ($env:SCHALLER_SIN_VERIFICAR -ne "1") {
     Paso "Verificando el servidor..."

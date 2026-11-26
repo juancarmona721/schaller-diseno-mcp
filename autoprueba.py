@@ -56,6 +56,30 @@ def _pywin32():
     return _r("pywin32", "fallo", (r.stderr or r.stdout or f"codigo de salida {r.returncode}").strip()[-300:])
 
 
+_CODIGO_SHAPELY = "\n".join([
+    "import shapely, shapely.geometry as sh",
+    "from shapely.ops import unary_union",
+    "u = unary_union([sh.LineString([(0, 0), (4, 0)]).buffer(0.1), sh.LineString([(4, 0), (4, 3)]).buffer(0.1)])",
+    "print('OK' if 1.0 < u.area < 2.0 else 'MAL')",
+])
+
+
+def _geometria_avanzada():
+    """Shapely es OPCIONAL: sin el, el MCP funciona (no reconstruye habitaciones desde muros). Si esta instalado, se prueba una operacion real."""
+    import importlib.util
+    import subprocess
+    if importlib.util.find_spec("shapely") is None:
+        return _r("geometria_avanzada", "aviso", "Shapely no esta instalado (opcional): no se reconstruiran habitaciones desde los muros")
+    try:
+        r = subprocess.run([sys.executable, "-I", "-c", _CODIGO_SHAPELY], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return _r("geometria_avanzada", "fallo", f"{type(e).__name__}: {e}")
+    if r.returncode == 0 and r.stdout.strip() == "OK":
+        return _r("geometria_avanzada", "ok", "Shapely instalado: operacion geometrica real correcta")
+    return _r("geometria_avanzada", "fallo", (r.stderr or r.stdout or f"codigo de salida {r.returncode}").strip()[-300:])
+
+
 def _mcp():
     try:
         from mcp.server.fastmcp import FastMCP
@@ -189,7 +213,7 @@ def _autocad_registrado():
 
 
 def ejecutar(aqui: Path, carpeta_perfiles: Path, configs: list[Path] | None = None) -> dict:
-    comprobaciones = [_sistema(), _python(), _pywin32(), _mcp(), _otras_dependencias(), _rutas(aqui, carpeta_perfiles), _integridad(aqui),
+    comprobaciones = [_sistema(), _python(), _pywin32(), _geometria_avanzada(), _mcp(), _otras_dependencias(), _rutas(aqui, carpeta_perfiles), _integridad(aqui),
                       _cliente_mcp("schaller-diseno", configs), _autocad_registrado()]
     n = {e: sum(1 for c in comprobaciones if c["estado"] == e) for e in ("ok", "aviso", "fallo")}
     return {"ok": n["fallo"] == 0, "nivel": 1, "resumen": n, "comprobaciones": comprobaciones}

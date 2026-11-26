@@ -34,6 +34,10 @@ FLUJO NORMAL
    PLANOS SIN ROTULOS: escanear_zonas ya intenta entenderlos solo. Devuelve recintos CANDIDATOS (origen "poligono", confianza baja: poligonos
    cerrados con tamano de habitacion) y muebles con rol_origen "inferido" (por los bloques anidados de su definicion). Usalos para decidir, declaralos
    como SUPUESTOS y NO tomes capturas de pantalla ni controles el escritorio: es lento y no hace falta. Si devuelve 0 zonas trae `diagnostico`.
+   MEDIDAS DEL PLANO: cada zona con poligono trae `medidas` (area, perimetro, ancho x largo orientados, angulo, forma) en METROS, y el resultado trae `medidas_plano`
+   (extension de cada vista, muros leidos y su longitud, areas). Los recintos pueden venir de MUROS (origen "muros"): se reconstruyen desde las capas de muros
+   cuando el plano no trae rotulos ni poligonos de habitacion (requiere Shapely; si no esta, el resultado lo dice). Es informacion MEDIDA, no una regla de
+   diseno: no apliques espaciados ni productos habituales por tu cuenta; el criterio de diseno lo define el equipo.
    VARIAS PLANTAS EN UN DIBUJO: escanear_zonas devuelve `vistas` (grupos de geometria separados) y cada zona trae su `vista`. Una vista NO es un piso:
    no asumas niveles; usa el nombre solo si trae texto ("PLANTA ..."), si no, llamalas "vista 1/2" y declaralo como supuesto.
    ANFITRION GIRADO: el MCP calcula en el marco del propio mueble (N/S/E/O de la receta son las de su dibujo; el perfil puede traer cabecera_local).

@@ -13,6 +13,8 @@ import re
 from pathlib import Path
 
 import clasificador
+import medidas
+import recintos
 import plantas
 import unidades
 
@@ -38,6 +40,7 @@ class Vocabulario:
         self.contenedores = re.compile(datos["contenedores"], re.I)
         self.roles = [(r["rol"], re.compile(r["patron"], re.I)) for r in datos["roles"]]
         self.ignorar = re.compile(datos["ignorar_bloques"], re.I)
+        self.capas_muros_rx = re.compile("|".join(datos.get("capas_muros") or []) or r"(?!x)x", re.I)
         self.capas_anotacion = re.compile(datos.get("capas_anotacion") or r"(?!x)x", re.I)     # cajetines, marcos, leyendas: ni recintos ni vistas
         self.capas_no_recinto = re.compile(datos.get("capas_no_recinto") or r"(?!x)x", re.I)  # ademas: mobiliario, vegetacion, cotas
         self.rol_a_zona = dict(datos["rol_a_zona"])
@@ -234,6 +237,26 @@ def _poligonos_candidatos(polis: list, u: float) -> list:
     return salida
 
 
+def _medidas_plano(u, vistas, muros, segs, zonas, reconstruccion) -> dict:
+    """Resumen cuantitativo del plano en METROS, sin ninguna regla de diseno: extension de cada vista, muros leidos, recintos y sus areas."""
+    cuenta = {}
+    for z in zonas:
+        cuenta[z["origen"]] = cuenta.get(z["origen"], 0) + 1
+    areas = [z["medidas"]["area_m2"] for z in zonas if z.get("medidas")]
+    out = {"unidad_m": u,
+           "vistas": [{"id": v["id"], "ancho_m": round((v["bbox"][2] - v["bbox"][0]) * u, 2), "alto_m": round((v["bbox"][3] - v["bbox"][1]) * u, 2),
+                       "area_envolvente_m2": round((v["bbox"][2] - v["bbox"][0]) * (v["bbox"][3] - v["bbox"][1]) * u * u, 1), "elementos": v["n_elementos"]} for v in vistas],
+           "muros": {"segmentos": len(segs), "longitud_total_m": round(sum(math.hypot(s_[2] - s_[0], s_[3] - s_[1]) for s_ in segs) * u, 1),
+                     "capas": (muros or {}).get("capas", {}), "entidades_en_capas_de_muros": (muros or {}).get("entidades", 0), "truncado": bool((muros or {}).get("truncado"))},
+           "recintos": {"total": len(zonas), "por_origen": cuenta, "con_medidas": len(areas), "area_total_m2": round(sum(areas), 1),
+                        "area_media_m2": round(sum(areas) / len(areas), 1) if areas else None}}
+    if reconstruccion is not None:
+        d = reconstruccion.get("diagnostico", {})
+        out["reconstruccion_por_muros"] = {"ok": reconstruccion.get("ok"), "error": reconstruccion.get("error"), "recintos": len(reconstruccion.get("recintos", [])),
+                                           **{k: d[k] for k in ("aberturas_cerradas", "extremos_libres", "componentes_libres", "descartados", "detalle") if k in d}}
+    return out
+
+
 def _dim(b, unidad_m):
     return (b["x1"] - b["x0"]) * unidad_m, (b["y1"] - b["y0"]) * unidad_m
 
@@ -269,6 +292,9 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
         if len(pts) >= 3:
             xs, ys = [q[0] for q in pts], [q[1] for q in pts]
             dims.append(max(max(xs) - min(xs), max(ys) - min(ys)))
+    segs_muros = (raw.get("muros") or {}).get("segmentos") or []
+    for sg in segs_muros[:600]:
+        dims.append(math.hypot(sg[2] - sg[0], sg[3] - sg[1]))
     u, aviso_unidades = unidades.unidad_efectiva(u_declarada, dims)
     radio = RADIO_ASOCIAR_M / u
     zonas = []
@@ -283,6 +309,22 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
         if AREA_MIN_M2 <= a_m2 <= AREA_MAX_M2:
             xs, ys = [q[0] for q in pts], [q[1] for q in pts]
             polis.append({"pts": pts, "area_m2": a_m2, "bbox": (min(xs), min(ys), max(xs), max(ys)), "capa": p.get("capa", "")})
+
+    # --- recintos reconstruidos desde los MUROS (planos sin rotulos ni polilineas de habitacion). Los trazos cerrados finos de capas de muros son muros macizos.
+    reconstruccion = None
+    solidos = []
+    for pol in raw.get("poligonos", []):
+        if vocab.capas_muros_rx.search(pol.get("capa", "")) and len(pol.get("pts") or []) >= 3:
+            xs_, ys_ = [q[0] for q in pol["pts"]], [q[1] for q in pol["pts"]]
+            lado_menor = min(max(xs_) - min(xs_), max(ys_) - min(ys_)) * u
+            if lado_menor <= 0.6:
+                solidos.append([tuple(q) for q in pol["pts"]])
+    if segs_muros or solidos:
+        reconstruccion = recintos.reconstruir(segs_muros, u, poligonos_muro=solidos)
+        for rm in reconstruccion.get("recintos", []):
+            xs_, ys_ = [q[0] for q in rm["pts"]], [q[1] for q in rm["pts"]]
+            polis.append({"pts": [tuple(q) for q in rm["pts"]], "area_m2": rm["area_m2"], "bbox": (min(xs_), min(ys_), max(xs_), max(ys_)),
+                          "capa": "muros", "origen_poli": "muros", "area_neta_m2": rm.get("area_neta_m2"), "huecos": rm.get("huecos", 0)})
 
     def poligono_de(x, y):
         mejor = None
@@ -317,8 +359,9 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
              "muebles": [], "muebles_detalle": [], "_poli": poli}
         if poli:
             b = poli["bbox"]
+            de_muros = poli.get("origen_poli") == "muros"
             z.update(x=round((b[0] + b[2]) / 2, 3), y=round((b[1] + b[3]) / 2, 3), bbox=[round(v, 3) for v in b],
-                     area_m2=round(poli["area_m2"], 2), origen="texto+poligono", confianza="alta")
+                     area_m2=round(poli["area_m2"], 2), origen="texto+muros" if de_muros else "texto+poligono", confianza="media" if de_muros else "alta")
         zonas.append(z)
 
     # --- recintos CANDIDATOS: poligonos del tamano de una habitacion que ningun texto reclamo (planos sin rotulos). Son hipotesis de confianza baja.
@@ -327,7 +370,8 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
     for i, p in enumerate(_poligonos_candidatos(libres, u), 1):
         b = p["bbox"]
         zonas.append({"nombre": f"Recinto {i} (sin rotulo)", "tipo_espacio": "otro", "grupos": [], "x": round((b[0] + b[2]) / 2, 3),
-                      "y": round((b[1] + b[3]) / 2, 3), "capa": "", "origen": "poligono", "confianza": "baja", "candidato": True,
+                      "y": round((b[1] + b[3]) / 2, 3), "capa": "", "origen": "muros" if p.get("origen_poli") == "muros" else "poligono",
+                      "confianza": "baja", "candidato": True,
                       "bbox": [round(v, 3) for v in b], "area_m2": round(p["area_m2"], 2), "muebles": [], "muebles_detalle": [],
                       "inferido_por": [], "_poli": p})
 
@@ -455,6 +499,12 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
     for v in vistas:
         v["n_zonas"] = sum(1 for z in zonas if z["vista"] == v["id"])
     for z in zonas:
+        if z.get("_poli"):                                   # medidas REALES del recinto (metros): area, perimetro, ancho x largo orientados, angulo, compacidad
+            z["medidas"] = medidas.medidas_recinto(z["_poli"]["pts"], u)
+            if z["_poli"].get("area_neta_m2") is not None and z["_poli"].get("huecos"):
+                z["medidas"]["area_neta_m2"] = z["_poli"]["area_neta_m2"]
+                z["medidas"]["huecos"] = z["_poli"]["huecos"]
+    for z in zonas:
         z.pop("_poli", None)
     for h in hosts + sin_rol:
         h.pop("_b", None)
@@ -462,6 +512,9 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
     return {"zonas": zonas, "total": len(zonas), "tipologia": elegida, "tipologia_detectada": detectada, "tipologia_pesos": dict(orden),
             "bloques_ignorados": ignorados, "bloques_con_rol": len(hosts), "bloques_sin_rol": len(sin_rol),
             "sugerencias_roles": sugerencias, "unidad_m": u, "unidad_declarada_m": u_declarada, "aviso_unidades": aviso_unidades, "vistas": vistas,
+            "medidas_plano": _medidas_plano(u, vistas, raw.get("muros"), segs_muros, zonas, reconstruccion),
             "resumen_lectura": {"textos": len(raw.get("textos", [])), "textos_con_nombre_de_espacio": n_reconocidos,
-                                "poligonos": len(raw.get("poligonos", [])), "poligonos_con_area_de_recinto": len(polis), "recintos_candidatos": len([z for z in zonas if z.get("candidato")]),
+                                "poligonos": len(raw.get("poligonos", [])), "poligonos_con_area_de_recinto": len([q for q in polis if q.get("origen_poli") != "muros"]),
+                                "segmentos_de_muro": len(segs_muros), "recintos_por_muros": len([q for q in polis if q.get("origen_poli") == "muros"]),
+                                "recintos_candidatos": len([z for z in zonas if z.get("candidato")]),
                                 "bloques": len(raw.get("bloques", [])), "bloques_con_rol": len(hosts), "bloques_sin_rol": len(sin_rol)}}

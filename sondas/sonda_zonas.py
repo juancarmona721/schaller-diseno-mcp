@@ -20,6 +20,8 @@ import zonas_motor  # noqa: E402
 UNIDAD_A_METROS = {1: 0.0254, 2: 0.3048, 3: 1609.344, 4: 0.001, 5: 0.01, 6: 1.0, 7: 1000.0, 10: 0.9144, 14: 0.1, 15: 10.0, 16: 100.0}
 CAPAS_PROPIAS = ("SCH_ILUMINACION", "SCH_AUDIO")           # lo que colocamos nosotros no es mobiliario del proyecto
 MAX_TEXTOS, MAX_POLI, MAX_BLOQUES, MAX_VERTICES = 8000, 6000, 8000, 200
+PRESUPUESTO_TEXTOS_S = 20.0                      # los textos son lo mas caro de leer (varias llamadas COM cada uno)
+MAX_MUROS, PRESUPUESTO_MUROS_S = 8000, 12.0     # entidades de capas de muros que se leen, con tope de tiempo
 MAX_DEFINICIONES, MAX_ENTIDADES_DEFINICION, PRESUPUESTO_DEFINICIONES_S = 25, 300, 10.0     # definiciones sin rol que se abren, con tope de tiempo
 TIPO_ENTIDAD = {"AcDbCircle": "circulos", "AcDbArc": "arcos", "AcDbLine": "lineas", "AcDbPolyline": "poli", "AcDb2dPolyline": "poli",
                 "AcDbBlockReference": "bloques", "AcDbHatch": "rellenos", "AcDbText": "textos", "AcDbMText": "textos"}
@@ -50,16 +52,61 @@ def _filtro(tipos, valores):
             VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_VARIANT, tuple(valores)))
 
 
-def _seleccion(doc, nombre, dxf):
+def _seleccion(doc, nombre, dxf, capas=None):
     nombre = f"{nombre}_{os.getpid()}"       # unico por proceso: varios procesos a la vez no se pisan
     try:
         doc.SelectionSets.Item(nombre).Delete()
     except Exception:
         pass
     ss = doc.SelectionSets.Add(nombre)
-    ft, fd = _filtro([0], [dxf])
+    ft, fd = _filtro([0, 8], [dxf, capas]) if capas else _filtro([0], [dxf])
     ss.Select(5, None, None, ft, fd)
     return ss
+
+
+def _leer_muros(doc, palabras, t0, limite, avisos):
+    """Segmentos de las capas de MUROS (lineas y polilineas), por nombre de capa del vocabulario (editable). Es la materia prima para reconstruir
+    recintos aunque el plano no traiga rotulos ni polilineas de habitacion. Acotado en entidades y en tiempo; lo que no cabe se avisa."""
+    if not palabras:
+        return {"segmentos": [], "capas": {}, "entidades": 0, "truncado": False}
+    filtro = ",".join(f"*{w}*" for w in palabras)
+    segmentos, capas = [], {}
+    try:
+        ss = _seleccion(doc, "SS_ZONAS_MUR", "LINE,LWPOLYLINE,POLYLINE", filtro)
+    except Exception:
+        return {"segmentos": [], "capas": {}, "entidades": 0, "truncado": False}
+    t_m = time.time()
+    try:
+        n = ss.Count
+        leidas = 0
+        for i in range(min(n, MAX_MUROS)):
+            if time.time() - t_m > PRESUPUESTO_MUROS_S or time.time() - t0 > limite:
+                avisos.append("Tiempo agotado leyendo muros: la reconstruccion de recintos usa solo parte de ellos.")
+                break
+            try:
+                e = ss.Item(i)
+                on = str(e.ObjectName)
+                if on == "AcDbLine":
+                    a, b = e.StartPoint, e.EndPoint
+                    segmentos.append([round(float(a[0]), 4), round(float(a[1]), 4), round(float(b[0]), 4), round(float(b[1]), 4)])
+                else:
+                    c = list(e.Coordinates)
+                    paso = 3 if on == "AcDb2dPolyline" else 2
+                    pts = [(c[k], c[k + 1]) for k in range(0, len(c) - paso + 1, paso)]
+                    if getattr(e, "Closed", False) and len(pts) > 2:
+                        pts.append(pts[0])
+                    for k in range(len(pts) - 1):
+                        segmentos.append([round(pts[k][0], 4), round(pts[k][1], 4), round(pts[k + 1][0], 4), round(pts[k + 1][1], 4)])
+                if leidas < 400:                                    # el desglose por capa se toma de una muestra (cada lectura de capa es una llamada COM)
+                    capas[str(e.Layer)] = capas.get(str(e.Layer), 0) + 1
+                leidas += 1
+            except Exception:
+                pass
+        if n > MAX_MUROS:
+            avisos.append(f"Hay {n} entidades en capas de muros: solo se leyeron las primeras {MAX_MUROS}.")
+        return {"segmentos": segmentos, "capas": capas, "entidades": int(n), "truncado": n > MAX_MUROS}
+    finally:
+        ss.Delete()
 
 
 class Transformacion:
@@ -192,8 +239,12 @@ def leer(doc, args) -> dict:
 
     # ---- espacio modelo
     ss = _seleccion(doc, "SS_ZONAS_TXT", "TEXT,MTEXT")
+    t_txt = time.time()
     try:
         for i in range(ss.Count):
+            if time.time() - t_txt > PRESUPUESTO_TEXTOS_S or time.time() - t0 > limite:
+                avisos.append(f"Tiempo agotado leyendo textos ({i} de {ss.Count}): los nombres de espacios pueden estar incompletos.")
+                break
             try:
                 agregar_texto(ss.Item(i), id_ident)
             except Exception:
@@ -263,6 +314,9 @@ def leer(doc, args) -> dict:
                     pass
         except Exception:
             pass
+    # ---- muros (capas con nombre de muro/tabique/pared/columna...): materia prima de los recintos por geometria
+    muros = _leer_muros(doc, list(vocab.datos.get("capas_muros") or []), t0, limite, avisos)
+
     # ---- definiciones de los bloques SIN rol conocido (por vocabulario): una lectura por definicion, las mas grandes primero, con presupuesto de tiempo
     candidatas = {}
     for b in bloques:
@@ -288,7 +342,7 @@ def leer(doc, args) -> dict:
     if len(orden) > MAX_DEFINICIONES:
         avisos.append(f"Solo se abrieron las {MAX_DEFINICIONES} definiciones mas grandes de {len(orden)} bloques sin rol conocido.")
     return {"ok": True, "plano": str(doc.Name), "unidad_m": unidad_m, "insunits": ins, "n_objetos": int(doc.ModelSpace.Count),
-            "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "contenedores_leidos": len(contenedores),
+            "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "muros": muros, "contenedores_leidos": len(contenedores),
             "elementos_en_contenedores": dentro, "avisos": avisos, "tiempo_lectura_s": round(time.time() - t0, 2)}
 
 

@@ -1,0 +1,2 @@
+# Geometria avanzada (OPCIONAL): reconstruye habitaciones desde los muros. Si no se instala, el MCP funciona igual sin esa funcion.
+shapely==2.2.0

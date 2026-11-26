@@ -430,7 +430,7 @@ def test_ninguna_herramienta_manda_a_confirmar_con_la_persona_fuera_de_borrar_co
 
 def test_la_guia_explica_los_planos_sin_rotulos_y_los_anfitriones_girados():
     import guia_diseno
-    for frase in ("PLANOS SIN ROTULOS", "rol_origen", "NO tomes capturas", "ANFITRION GIRADO", "cabecera_local", "VARIAS PLANTAS", "NO es un piso"):
+    for frase in ("PLANOS SIN ROTULOS", "rol_origen", "NO tomes capturas", "ANFITRION GIRADO", "cabecera_local", "VARIAS PLANTAS", "NO es un piso", "MEDIDAS DEL PLANO", "medidas_plano"):
         assert frase in guia_diseno.FLUJO, frase
 
 

@@ -5,6 +5,7 @@ Un dibujo puede declarar milimetros y estar dibujado en metros (o al reves): tod
 cada unidad (no una mediana: los planos importados de PDF traen miles de trazos finos que la dominan). Es conservador: solo corrige si la
 declarada NO es plausible y hay una unica alternativa clara; en cualquier otro caso conserva la declarada y avisa.
 """
+import math
 import statistics
 
 CANDIDATAS = (0.001, 0.01, 0.0254, 1.0)          # mm, cm, pulgada, m
@@ -38,13 +39,16 @@ def unidad_efectiva(u_declarada: float, dimensiones: list[float]) -> tuple[float
     ok_decl, _ = _valida(dims, med, u_declarada)
     if ok_decl:
         return u_declarada, None
-    puntuadas = sorted(((_valida(dims, med, u)[1], u) for u in CANDIDATAS if _valida(dims, med, u)[0]), reverse=True)
-    if len(puntuadas) == 1 or (len(puntuadas) > 1 and puntuadas[0][0] - puntuadas[1][0] >= MARGEN):
-        u = puntuadas[0][1]
+    elegibles = [u for u in CANDIDATAS if _valida(dims, med, u)[0]]
+    # varias unidades pueden ser plausibles (3 m o 9 cm): gana la que deja el tamano MEDIANO mas cercano a ~1 m (el de un mueble o un muro), si es claramente
+    # mejor (un factor de e o mas); si no, no se adivina
+    cerca = sorted((abs(math.log(med * u)), u) for u in elegibles)
+    if len(cerca) == 1 or (len(cerca) > 1 and cerca[1][0] - cerca[0][0] >= 1.0):
+        u = cerca[0][1]
         return u, (f"El dibujo declara {_nombre(u_declarada)} pero lo dibujado mide ~{med:g} unidades (serian {med * u_declarada:.3g} m): "
                    f"se asume {_nombre(u)}. Revisa las unidades del dibujo (UNITS/INSUNITS).")
-    if puntuadas:                                   # ambiguo (p. ej. podria ser mm o cm): no se adivina
-        opciones = " o ".join(_nombre(u) for _f, u in puntuadas)
+    if cerca:                                       # ambiguo: no se adivina
+        opciones = " o ".join(_nombre(u) for _d, u in cerca)
         return u_declarada, (f"Las unidades declaradas ({_nombre(u_declarada)}) no cuadran con el tamano de lo dibujado (~{med:g} unidades); podrian ser "
                              f"{opciones}: no se corrigieron. Confirma las unidades.")
     return u_declarada, (f"Las unidades declaradas ({_nombre(u_declarada)}) no cuadran con el tamano de lo dibujado (~{med:g} unidades) y ninguna "

@@ -388,5 +388,6 @@
   "sofa": "sala"
  },
   "capas_anotacion": "r[oó]tulo|rotulo|cajet|titul|title|marco\\b|border|frame|membrete|l[aá]mina|sheet|leyenda|legend|tabla|table|logo",
-  "capas_no_recinto": "r[oó]tulo|rotulo|cajet|titul|title|marco\\b|border|frame|membrete|l[aá]mina|sheet|leyenda|legend|tabla|table|logo|amobl|mobili|furnit|mueble|equipamiento|equipment|vegetaci|jard|landscape|paisaj|cota|dimension|hatch|sombra"
+  "capas_no_recinto": "r[oó]tulo|rotulo|cajet|titul|title|marco\\b|border|frame|membrete|l[aá]mina|sheet|leyenda|legend|tabla|table|logo|amobl|mobili|furnit|mueble|equipamiento|equipment|vegetaci|jard|landscape|paisaj|cota|dimension|hatch|sombra",
+  "capas_muros": ["muro", "wall", "tabiq", "pared", "partition", "parete", "fachada", "facade", "mampost", "pilar", "column"]
 }

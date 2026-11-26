@@ -18,6 +18,9 @@ dependencies = [
     "pydantic>=2.0.0"
 ]
 
+[project.optional-dependencies]
+avanzado = ["shapely>=2.0,<3"]      # reconstruye habitaciones desde los muros (opcional)
+
 [project.scripts]
 schaller-diseno = "server:main"
 

@@ -124,7 +124,7 @@ def test_autoprueba_corre_sin_autocad_y_deja_todo_como_estaba(tmp_path):
     antes = sorted(p.name for p in server.AQUI.iterdir())
     res = autoprueba.ejecutar(server.AQUI, tmp_path / "perfiles", configs=[])
     ids = {c["id"] for c in res["comprobaciones"]}
-    assert {"sistema", "python", "pywin32", "mcp_sdk", "dependencias", "rutas_y_permisos", "integridad", "cliente_mcp", "autocad_registrado"} <= ids
+    assert {"sistema", "python", "pywin32", "geometria_avanzada", "mcp_sdk", "dependencias", "rutas_y_permisos", "integridad", "cliente_mcp", "autocad_registrado"} <= ids
     assert sorted(p.name for p in server.AQUI.iterdir()) == antes           # sin archivos temporales sobrantes
     assert list((tmp_path / "perfiles").glob("*")) == []                    # el ciclo de prueba se limpia
     c = {x["id"]: x for x in res["comprobaciones"]}
