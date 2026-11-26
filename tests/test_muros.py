@@ -101,3 +101,85 @@ def test_las_lineas_del_contenedor_ayudan_a_detectar_la_unidad():
         segs += caja_doble(i * 5.0, 0, i * 5.0 + 4.6, 3.6)
     r = zonas_motor.construir_zonas({**raw_lineas(con_capa(segs, "X-PLANO 2")), "unidad_m": 0.001}, VOCAB)
     assert r["unidad_m"] == 1.0 and "lo mayor" in r["aviso_unidades"] and r["total"] == 3                   # el aviso dice tambien la extension: ya no parece contradictorio
+
+
+# ------------------------------------------------------------------------------------------------ planos importados de PDF: cada linea es un rectangulo finisimo
+def trazo(x1, y1, x2, y2, ancho=0.015):
+    """Un trazo de PDF: rectangulo fino alrededor del eje (x1,y1)-(x2,y2)."""
+    import math
+    L = math.hypot(x2 - x1, y2 - y1)
+    nx, ny = -(y2 - y1) / L * ancho / 2, (x2 - x1) / L * ancho / 2
+    return [(x1 + nx, y1 + ny), (x2 + nx, y2 + ny), (x2 - nx, y2 - ny), (x1 - nx, y1 - ny)]
+
+
+class FalsaPolilinea:
+    ObjectName = "AcDbPolyline"
+
+    def __init__(self, pts, capa="PDF_Geometria", cerrada=True):
+        self.Layer = capa
+        self.Coordinates = [v for p in pts for v in p]
+        self.Closed = cerrada
+
+
+class Id:
+    @staticmethod
+    def punto(x, y):
+        return (x, y)
+
+
+def _sz():
+    import sonda_zonas
+    return sonda_zonas
+
+
+def test_un_trazo_fino_de_pdf_es_UN_segmento_con_su_longitud_real():
+    sz = _sz()
+    poli, segs, capa = sz._procesar_polilinea(FalsaPolilinea(trazo(0, 0, 4.0, 0)), "AcDbPolyline", Id)
+    assert len(segs) == 1 and capa == "PDF_Geometria" and poli is not None
+    x1, y1, x2, y2, _ = segs[0]
+    assert abs(((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5 - 4.0) < 1e-3
+
+
+def test_un_rectangulo_normal_no_es_un_trazo_y_da_sus_cuatro_lados():
+    sz = _sz()
+    poli, segs, _ = sz._procesar_polilinea(FalsaPolilinea([(0, 0), (3, 0), (3, 2), (0, 2)]), "AcDbPolyline", Id)
+    assert len(segs) == 4 and poli == [[0, 0], [3, 0], [3, 2], [0, 2]]
+
+
+def test_una_polilinea_abierta_da_segmentos_y_ningun_poligono():
+    sz = _sz()
+    poli, segs, _ = sz._procesar_polilinea(FalsaPolilinea([(0, 0), (2, 0), (2, 3)], cerrada=False), "AcDbPolyline", Id)
+    assert poli is None and len(segs) == 2
+
+
+def test_la_transformacion_del_bloque_se_aplica_al_eje():
+    sz = _sz()
+
+    class Mover:
+        @staticmethod
+        def punto(x, y):
+            return (x + 100.0, y + 50.0)
+    _, segs, _ = sz._procesar_polilinea(FalsaPolilinea(trazo(0, 0, 4.0, 0)), "AcDbPolyline", Mover)
+    assert min(segs[0][0], segs[0][2]) == pytest.approx(100.0, abs=0.02) and segs[0][1] == pytest.approx(50.0, abs=0.02)
+
+
+def test_la_capa_de_un_pdf_con_miles_de_trazos_diminutos_y_unos_pocos_largos_se_elige_por_sus_trazos_largos():
+    import random
+    random.seed(7)
+    ruido = [(x * 0.01, 5.0, x * 0.01 + random.choice([0.01, 0.02, 0.03]), 5.0) for x in range(4000)]          # texto y hachura: trazos de 1-3 cm
+    largos = varias(3)                                                                                          # las caras de los muros: trazos de ~4 m
+    lineas = con_capa(ruido + largos, "PDF_Geometria")
+    d = mu.elegir([], lineas, VOCAB.capas_muros_rx, VOCAB.capas_no_recinto)
+    e = d["estadisticas"]["PDF_Geometria"]
+    assert d["modo"] == "geometria" and d["capas"] == ["PDF_Geometria"] and e["mediana_m"] < 0.05 and e["trazos_largos"] == len(largos)
+    assert len(d["segmentos"]) == len(largos)                                                                   # el ruido diminuto no entra como muro
+
+
+def test_un_plano_de_pdf_con_muros_largos_reconstruye_habitaciones_aunque_la_mediana_sea_diminuta():
+    from tests.test_recintos import caja_doble
+    muros_ = []
+    for i in range(3):
+        muros_ += caja_doble(i * 5.0, 0, i * 5.0 + 4.6, 3.6)
+    ruido = [(x * 0.01, 9.0, x * 0.01 + 0.015, 9.0) for x in range(3000)]
+    r = zonas_motor.construir_zonas(raw_lineas(con_capa(muros_ + ruido, "PDF_Geometria")), VOCAB)
+    assert r["total"] == 3 and r["medidas_plano"]["muros"]["como_se_eligieron"] == "geometria"

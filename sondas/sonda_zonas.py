@@ -164,6 +164,61 @@ def _leer_definicion(doc, nombre):
     return {"anidados": sorted(anidados)[:20], "capas": sorted(capas)[:20], "textos": textos, "n": n, "total": total, "leidas": leidas}
 
 
+RELACION_TRAZO = 8.0       # un rectangulo cuyo largo es >= 8 veces su ancho es un TRAZO (lineas de un PDF importado: cada linea es un rectangulo finisimo)
+
+
+def _eje_de_trazo(pts):
+    """Si los 4 vertices forman un rectangulo fino (un trazo), devuelve su EJE ((x1,y1),(x2,y2)); si no, None. Los trazos de un PDF vectorizado traen dos lados
+    largos y dos diminutos: tratarlos como 4 segmentos hunde la mediana de longitudes y esconde los muros; como UN eje conservan su longitud real."""
+    if len(pts) != 4:
+        return None
+    l = [math.hypot(pts[(i + 1) % 4][0] - pts[i][0], pts[(i + 1) % 4][1] - pts[i][1]) for i in range(4)]
+    a, b = l[0], l[1]
+    if min(a, b) <= 1e-9 or abs(a - l[2]) > 0.2 * max(a, l[2], 1e-9) or abs(b - l[3]) > 0.2 * max(b, l[3], 1e-9):
+        return None
+    if max(a, b) < RELACION_TRAZO * min(a, b):
+        return None
+    if a < b:                                       # lados cortos: p0-p1 y p2-p3
+        m1 = ((pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2)
+        m2 = ((pts[2][0] + pts[3][0]) / 2, (pts[2][1] + pts[3][1]) / 2)
+    else:                                           # lados cortos: p1-p2 y p3-p0
+        m1 = ((pts[1][0] + pts[2][0]) / 2, (pts[1][1] + pts[2][1]) / 2)
+        m2 = ((pts[3][0] + pts[0][0]) / 2, (pts[3][1] + pts[0][1]) / 2)
+    return m1, m2
+
+
+def _procesar_polilinea(e, on, tr):
+    """UNA sola lectura COM de una polilinea (capa, coordenadas, si es cerrada) -> (poligono|None, segmentos, capa). Antes se leia dos veces (poligono y
+    segmentos): con miles de trazos de un PDF eso duplicaba el tiempo. Los trazos finos devuelven UN segmento (su eje); el resto, sus lados."""
+    capa = str(e.Layer)
+    c = list(e.Coordinates)
+    paso = 3 if on == "AcDb2dPolyline" else 2
+    pts = [(c[i], c[i + 1]) for i in range(0, len(c) - paso + 1, paso)]
+    if len(pts) >= 2 and abs(pts[0][0] - pts[-1][0]) < 1e-9 and abs(pts[0][1] - pts[-1][1]) < 1e-9:
+        pts, cerrada = pts[:-1], True
+    elif len(pts) == 4:
+        cerrada = True if _eje_de_trazo(pts) else bool(getattr(e, "Closed", False))      # un rectangulo fino de 4 vertices es un trazo cerrado: se evita leer Closed
+    else:
+        cerrada = bool(getattr(e, "Closed", False))
+    tp = [tr.punto(x, y) for x, y in pts]
+    segs = []
+    eje = _eje_de_trazo(pts) if cerrada else None
+    if eje:
+        a, b = tr.punto(*eje[0]), tr.punto(*eje[1])
+        segs.append([round(a[0], 4), round(a[1], 4), round(b[0], 4), round(b[1], 4), capa])
+    else:
+        cerr = tp + [tp[0]] if cerrada and len(tp) > 2 else tp
+        for k in range(len(cerr) - 1):
+            segs.append([round(cerr[k][0], 4), round(cerr[k][1], 4), round(cerr[k + 1][0], 4), round(cerr[k + 1][1], 4), capa])
+    poligono = None
+    if cerrada and len(tp) >= 3:
+        if len(tp) > MAX_VERTICES:
+            xs, ys = [q[0] for q in tp], [q[1] for q in tp]
+            tp = [(min(xs), min(ys)), (max(xs), min(ys)), (max(xs), max(ys)), (min(xs), max(ys))]
+        poligono = [[round(x, 3), round(y, 3)] for x, y in tp]
+    return poligono, segs, capa
+
+
 def _agregar_segmentos(e, on, tr, salida):
     """Segmentos [x1, y1, x2, y2, capa] de una LINEA o de una polilinea (abierta o cerrada), llevados a coordenadas del plano. Para planos sin capas de muros."""
     capa = str(e.Layer)
@@ -326,8 +381,10 @@ def leer(doc, args) -> dict:
                     if on in ("AcDbText", "AcDbMText"):
                         agregar_texto(sub, tr)
                     elif on in ("AcDbPolyline", "AcDb2dPolyline"):
-                        agregar_poligono(sub, tr)
-                        _agregar_segmentos(sub, on, tr, lineas)
+                        poli, segs_p, capa_p = _procesar_polilinea(sub, on, tr)       # una sola lectura: poligono Y segmentos
+                        if poli and len(poligonos) < MAX_POLI:
+                            poligonos.append({"capa": capa_p, "pts": poli})
+                        lineas.extend(segs_p)
                     elif on == "AcDbLine":
                         _agregar_segmentos(sub, on, tr, lineas)
                     elif on == "AcDbBlockReference":
