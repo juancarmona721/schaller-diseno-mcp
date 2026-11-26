@@ -34,3 +34,8 @@ fichas/
 perfiles/
 cache/
 .mcp.json
+# datos de uso/estado/operaciones que genera el MCP en la carpeta del usuario
+logs/
+operaciones/
+estado_conexion.json
+ajustes.json
