@@ -72,3 +72,66 @@ def elegir(segs_por_nombre: list, lineas: list, rx_muros, rx_excluir, u: float =
 
 def _top(estad: dict, n: int = 12) -> dict:
     return dict(sorted(estad.items(), key=lambda kv: -kv[1]["longitud_m"])[:n])
+
+
+ESPESOR_MIN_M, ESPESOR_MAX_M, SOLAPE_MIN_M = 0.04, 0.45, 0.3
+
+
+def ejes_de_muro(segmentos: list, u: float = 1.0) -> dict:
+    """Une las DOS CARAS de cada muro (pares de segmentos paralelos, ortogonales, a 4-45 cm que se solapan) en un eje: longitud real del muro y espesor.
+
+    Un plano dibujado a doble linea cuenta cada muro dos veces; aqui se mide una. Los segmentos sin cara pareja (cerramientos, puertas, ruido) se
+    informan aparte. PURO. -> {"longitud_eje_m", "espesor_mediano_m", "espesor_p10_m", "espesor_p90_m", "pares", "longitud_sin_pareja_m", "longitud_caras_m"}
+    """
+    horiz, vert, otros_m = [], [], 0.0
+    for s in segmentos:
+        x1, y1, x2, y2 = s[0] * u, s[1] * u, s[2] * u, s[3] * u
+        L = math.hypot(x2 - x1, y2 - y1)
+        if L <= 0:
+            continue
+        if _angulo_ortogonal(x2 - x1, y2 - y1):
+            if abs(y2 - y1) <= abs(x2 - x1):
+                horiz.append((round((y1 + y2) / 2, 4), min(x1, x2), max(x1, x2)))
+            else:
+                vert.append((round((x1 + x2) / 2, 4), min(y1, y2), max(y1, y2)))
+        else:
+            otros_m += L
+    total = sum(h[2] - h[1] for h in horiz) + sum(v[2] - v[1] for v in vert) + otros_m
+    if total <= 0:
+        return {}
+    espesores, longitud_eje, emparejado = [], 0.0, 0.0
+    for grupo in (horiz, vert):
+        grupo.sort()
+        usados = [0.0] * len(grupo)                                   # longitud ya emparejada de cada cara
+        for i, (c1, a1, b1) in enumerate(grupo):
+            for j in range(i + 1, len(grupo)):
+                c2, a2, b2 = grupo[j]
+                d = c2 - c1
+                if d > ESPESOR_MAX_M:
+                    break
+                if d < ESPESOR_MIN_M:
+                    continue
+                solape = min(b1, b2) - max(a1, a2)
+                if solape < SOLAPE_MIN_M:
+                    continue
+                libre_i, libre_j = (b1 - a1) - usados[i], (b2 - a2) - usados[j]
+                tramo = min(solape, libre_i, libre_j)
+                if tramo <= 0:
+                    continue
+                usados[i] += tramo
+                usados[j] += tramo
+                longitud_eje += tramo
+                espesores.append((d, tramo))
+                emparejado += 2 * tramo
+    if not espesores:
+        return {"pares": 0, "longitud_caras_m": round(total, 1), "longitud_sin_pareja_m": round(total, 1)}
+    esp = sorted(espesores)
+    acum, p = 0.0, {}
+    for d, tramo in esp:                                              # percentiles ponderados por longitud
+        acum += tramo
+        for nombre, q in (("p10", 0.1), ("p50", 0.5), ("p90", 0.9)):
+            if nombre not in p and acum >= q * longitud_eje:
+                p[nombre] = d
+    return {"pares": len(espesores), "longitud_eje_m": round(longitud_eje, 1), "espesor_mediano_m": round(p.get("p50", 0), 3),
+            "espesor_p10_m": round(p.get("p10", 0), 3), "espesor_p90_m": round(p.get("p90", 0), 3),
+            "longitud_caras_m": round(total, 1), "longitud_sin_pareja_m": round(max(0.0, total - emparejado), 1)}

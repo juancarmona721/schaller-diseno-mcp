@@ -217,7 +217,7 @@ def _contiene_bbox(a, b, tol=0.01) -> bool:
     return a[0] - tol * ancho <= b[0] and a[1] - tol * alto <= b[1] and b[2] <= a[2] + tol * ancho and b[3] <= a[3] + tol * alto
 
 
-def _poligonos_candidatos(polis: list, u: float, descartes: dict | None = None) -> list:
+def _poligonos_candidatos(polis: list, u: float, descartes: dict | None = None, detalle: dict | None = None) -> list:
     """Poligonos libres (sin texto) que pueden ser una habitacion. Descarta los pequenos o estrechos (muebles, franjas), los duplicados,
     los contornos que contienen varias habitaciones y los dobles trazos de muro (se queda el interior). `descartes` (opcional) cuenta POR QUE se descarto
     cada uno: nada se pierde sin explicacion."""
@@ -246,9 +246,21 @@ def _poligonos_candidatos(polis: list, u: float, descartes: dict | None = None) 
             anota("duplicado")
     salida = []
     for p in unicos:
-        hijos = [q for q in unicos if q is not p and _contiene_bbox(p["bbox"], q["bbox"]) and q["area_m2"] < p["area_m2"]]
+        # un hijo debe estar DENTRO del poligono (centro incluido), no solo de su caja: un recinto en L tiene caja que cubre a sus vecinos
+        hijos = [q for q in unicos if q is not p and _contiene_bbox(p["bbox"], q["bbox"]) and q["area_m2"] < p["area_m2"]
+                 and punto_en_poligono((q["bbox"][0] + q["bbox"][2]) / 2, (q["bbox"][1] + q["bbox"][3]) / 2, p["pts"])]
         if len(hijos) >= 2:
             anota("contorno_que_contiene_varios")            # contorno del edificio o de una planta
+            if detalle is not None:
+                # recintos contenidos "maximales" (no dentro de otro hijo): su suma es lo ya cubierto; el resto del contorno es ESPACIO ABIERTO (medida, sin uso asignado)
+                maximales = [q for q in hijos if not any(r is not q and _contiene_bbox(r["bbox"], q["bbox"]) and r["area_m2"] > q["area_m2"] for r in hijos)]
+                cubierta = sum(q["area_m2"] for q in maximales)
+                b = p["bbox"]
+                detalle.setdefault("espacios_abiertos", []).append({
+                    "area_contorno_m2": round(p["area_m2"], 1), "ancho_m": round((b[2] - b[0]) * u, 2), "largo_m": round((b[3] - b[1]) * u, 2),
+                    "recintos_contenidos": len(maximales), "area_contenida_m2": round(cubierta, 1), "area_libre_m2": round(max(0.0, p["area_m2"] - cubierta), 1),
+                    "centro": [round((b[0] + b[2]) / 2 * u, 2), round((b[1] + b[3]) / 2 * u, 2)],
+                    "aviso": "Contorno cerrado que contiene recintos: lo que no ocupan es espacio abierto o circulacion. Es una MEDIDA, no se le asigna uso."})
             continue
         if len(hijos) == 1 and hijos[0]["area_m2"] >= 0.6 * p["area_m2"]:
             anota("doble_trazo_de_muro")                      # el interior es el recinto
@@ -260,7 +272,7 @@ def _poligonos_candidatos(polis: list, u: float, descartes: dict | None = None) 
     return salida
 
 
-def _medidas_plano(u, vistas, muros, segs, zonas, reconstruccion, decision=None) -> dict:
+def _medidas_plano(u, vistas, muros, segs, zonas, reconstruccion, decision=None, detalle_cand=None) -> dict:
     """Resumen cuantitativo del plano en METROS, sin ninguna regla de diseno: extension de cada vista, muros leidos, recintos y sus areas."""
     cuenta = {}
     for z in zonas:
@@ -277,11 +289,21 @@ def _medidas_plano(u, vistas, muros, segs, zonas, reconstruccion, decision=None)
            "lineas_por_capa": (decision or {}).get("estadisticas", {}),
            "recintos": {"total": len(zonas), "por_origen": cuenta, "con_medidas": len(areas), "area_total_m2": round(sum(areas), 1),
                         "area_media_m2": round(sum(areas) / len(areas), 1) if areas else None}}
+    try:
+        ejes = muros_mod.ejes_de_muro(segs, u)
+        if ejes:
+            out["muros"]["ejes"] = ejes
+    except Exception:
+        pass
+    if detalle_cand and detalle_cand.get("espacios_abiertos"):
+        ab = detalle_cand["espacios_abiertos"]
+        out["espacios_abiertos"] = ab
+        out["cobertura"] = {"area_recintos_m2": out["recintos"]["area_total_m2"], "area_espacios_abiertos_m2": round(sum(e["area_libre_m2"] for e in ab), 1)}
     if reconstruccion is not None:
         d = reconstruccion.get("diagnostico", {})
         out["reconstruccion_por_muros"] = {"ok": reconstruccion.get("ok"), "error": reconstruccion.get("error"), "recintos": len(reconstruccion.get("recintos", [])),
                                            "recintos_reconstruidos": reconstruccion.get("detalle", []),
-                                           **{k: d[k] for k in ("aberturas_cerradas", "extremos_libres", "componentes_libres", "descartados", "detalle") if k in d}}
+                                           **{k: d[k] for k in ("aberturas_cerradas", "extremos_libres", "componentes_libres", "descartados", "pequenos_mayores", "detalle") if k in d}}
     return out
 
 
@@ -402,8 +424,8 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
     # --- recintos CANDIDATOS: poligonos del tamano de una habitacion que ningun texto reclamo (planos sin rotulos). Son hipotesis de confianza baja.
     reclamados = {id(z["_poli"]) for z in zonas if z.get("_poli")}
     libres = [q for q in polis if id(q) not in reclamados and not vocab.capas_no_recinto.search(q.get("capa", ""))]
-    descartes_cand = {}
-    for i, p in enumerate(_poligonos_candidatos(libres, u, descartes_cand), 1):
+    descartes_cand, detalle_cand = {}, {}
+    for i, p in enumerate(_poligonos_candidatos(libres, u, descartes_cand, detalle_cand), 1):
         b = p["bbox"]
         zonas.append({"nombre": f"Recinto {i} (sin rotulo)", "tipo_espacio": "otro", "grupos": [], "x": round((b[0] + b[2]) / 2, 3),
                       "y": round((b[1] + b[3]) / 2, 3), "capa": "", "origen": "muros" if p.get("origen_poli") == "muros" else "poligono",
@@ -548,7 +570,7 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
     return {"zonas": zonas, "total": len(zonas), "tipologia": elegida, "tipologia_detectada": detectada, "tipologia_pesos": dict(orden),
             "bloques_ignorados": ignorados, "bloques_con_rol": len(hosts), "bloques_sin_rol": len(sin_rol),
             "sugerencias_roles": sugerencias, "unidad_m": u, "unidad_declarada_m": u_declarada, "aviso_unidades": aviso_unidades, "vistas": vistas,
-            "medidas_plano": _medidas_plano(u, vistas, raw.get("muros"), segs_muros, zonas, reconstruccion, decision_muros),
+            "medidas_plano": _medidas_plano(u, vistas, raw.get("muros"), segs_muros, zonas, reconstruccion, decision_muros, detalle_cand),
             "resumen_lectura": {"textos": len(raw.get("textos", [])), "textos_con_nombre_de_espacio": n_reconocidos,
                                 "poligonos": len(raw.get("poligonos", [])), "poligonos_con_area_de_recinto": len([q for q in polis if q.get("origen_poli") != "muros"]),
                                 "segmentos_de_muro": len(segs_muros), "descartes_de_candidatos": descartes_cand, "recintos_por_muros": len([q for q in polis if q.get("origen_poli") == "muros"]),

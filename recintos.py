@@ -138,6 +138,7 @@ def reconstruir(segmentos: list, u: float = 1.0, poligonos_muro: list | None = N
     comps = list(libre.geoms) if hasattr(libre, "geoms") else [libre]
     borde = envolvente.boundary
     recintos, descartes = [], {"exterior": 0, "pequenos": 0, "grandes": 0, "irregulares": 0}
+    pequenos = []
     for c in comps:
         if c.intersects(borde):
             descartes["exterior"] += 1
@@ -154,6 +155,9 @@ def reconstruir(segmentos: list, u: float = 1.0, poligonos_muro: list | None = N
         area_neta = c.area
         if area_neta < p["area_min_m2"]:
             descartes["pequenos"] += 1
+            bb = c.bounds
+            pequenos.append({"area_m2": round(area_neta, 2), "ancho_m": round(bb[2] - bb[0], 2), "largo_m": round(bb[3] - bb[1], 2),
+                             "centro": [round((bb[0] + bb[2]) / 2 / u, 3), round((bb[1] + bb[3]) / 2 / u, 3)]})
             continue
         if area_neta > p["area_max_m2"]:
             descartes["grandes"] += 1
@@ -168,4 +172,6 @@ def reconstruir(segmentos: list, u: float = 1.0, poligonos_muro: list | None = N
         recintos.append({"pts": [(x / u, y / u) for x, y in list(ext.exterior.coords)[:-1]], "area_m2": round(ext.area, 3),
                          "area_neta_m2": round(area_neta, 3), "huecos": len(c.interiors)})
     diag.update(componentes_libres=len(comps), descartados=descartes, recintos=len(recintos))
+    if pequenos:                                  # los mayores primero: son los que podrian ser un bano o un closet
+        diag["pequenos_mayores"] = sorted(pequenos, key=lambda q: -q["area_m2"])[:15]
     return {"ok": True, "recintos": recintos, "diagnostico": diag}
