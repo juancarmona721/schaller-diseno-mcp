@@ -15,6 +15,7 @@ import fichas
 import metricas
 import salud
 import guia_diseno
+import medidas
 import motor_ubicacion
 import operaciones
 import productos
@@ -492,7 +493,7 @@ def dibujar_espacios(espacios: list[dict], altura_texto: float = 200.0, ejecutar
 _RX_RECINTO = re.compile(r"^\s*(?:recinto|zona)\s*#?\s*(\d+)\s*$", re.IGNORECASE)
 
 
-def _anfitrion_de_recinto(zonas: list, ref, u: float) -> dict | None:
+def _anfitrion_de_recinto(zonas: list, ref, u: float, caja_completa: bool = False) -> dict | None:
     """'recinto 3' / 'zona 3' -> anfitrion construido desde la zona numero 3 del escaneo (el mismo numero que dibujo dibujar_recintos_revision). None si `ref`
     no tiene esa forma. Devuelve {"nombre", "host"} o {"nombre", "error", "detalle"}."""
     m = _RX_RECINTO.match(str(ref or ""))
@@ -508,9 +509,21 @@ def _anfitrion_de_recinto(zonas: list, ref, u: float) -> dict | None:
     host = {"nombre": nombre, "x0": b[0], "y0": b[1], "x1": b[2], "y1": b[3], "origen": "recinto"}
     ang = med.get("angulo_grados")
     aviso = None
+    cont = z.get("contorno")
+    usado = {"tipo": "caja_del_recinto", "ancho_m": round((b[2] - b[0]) * u, 2), "largo_m": round((b[3] - b[1]) * u, 2)}
+    if cont and len(cont) >= 3:
+        host["contorno"] = cont                                 # para comprobar cada pieza contra la forma REAL
+        if not caja_completa:
+            q = medidas.rectangulo_inscrito([tuple(p) for p in cont])
+            if q and q["area"] < 0.98 * (b[2] - b[0]) * (b[3] - b[1]):     # recinto irregular (L, U): la caja incluye espacio que no es del recinto
+                host.update(x0=q["x0"], y0=q["y0"], x1=q["x1"], y1=q["y1"])
+                usado = {"tipo": "mayor_rectangulo_inscrito", "ancho_m": round((q["x1"] - q["x0"]) * u, 2), "largo_m": round((q["y1"] - q["y0"]) * u, 2),
+                         "area_m2": round(q["area"] * u * u, 2), "area_recinto_m2": z.get("area_m2")}
+                aviso = (f"El recinto {n} no es rectangular: se calcula sobre el mayor rectangulo que cabe dentro ({usado['ancho_m']} x {usado['largo_m']} m, "
+                         f"{usado['area_m2']} m2 de {z.get('area_m2')} m2) para que ninguna pieza caiga fuera. Con opciones.caja_completa=true se usa la caja.")
     if ang is not None and min(abs(ang) % 90, 90 - abs(ang) % 90) > 3:
-        aviso = (f"El recinto {n} esta girado {ang:g} grados: se calcula sobre su caja envolvente en el plano y puede no coincidir con su forma real.")
-    return {"nombre": nombre, "host": host, **({"aviso": aviso} if aviso else {})}
+        aviso = ((aviso + " ") if aviso else "") + (f"El recinto {n} esta girado {ang:g} grados: se calcula sobre ejes del plano y puede no coincidir con su forma real.")
+    return {"nombre": nombre, "host": host, "usado": usado, **({"aviso": aviso} if aviso else {})}
 
 
 def _centroide(pts) -> tuple:
@@ -980,13 +993,17 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
         return {"ok": False, "error": "operacion_previa_ambigua", "operaciones_previas": previas,
                 "detalle": "Una operacion anterior quedo a medias y hay piezas sin marca que no se pueden atribuir con seguridad. "
                            "Revisa el dibujo (o usa quitar_colocaciones) antes de volver a escribir aqui. No se escribio nada."}
+    claves_item = {"receta", "anfitrion", "opciones", "cerca_de", "diseno_id"}
+    items = [({**{k: v for k, v in it.items() if k in claves_item},
+               "opciones": {**{k: v for k, v in it.items() if k not in claves_item}, **(it.get("opciones") or {})}} if isinstance(it, dict) else it) for it in items]
     hosts_ctx = list(ctx.get("hosts", []))
     if any(isinstance(it, dict) and _RX_RECINTO.match(str(it.get("anfitrion") or "")) for it in items):      # "recinto N": un recinto del escaneo como anfitrion
         rz = _zonas_del_plano()
         if not rz.get("ok"):
             return rz
         for k, it in enumerate(items[:len(hosts_ctx)]):
-            h2 = _anfitrion_de_recinto(rz.get("zonas", []), it.get("anfitrion") if isinstance(it, dict) else None, u)
+            h2 = _anfitrion_de_recinto(rz.get("zonas", []), it.get("anfitrion") if isinstance(it, dict) else None, u,
+                                       bool(((it.get("opciones") or {}) if isinstance(it, dict) else {}).get("caja_completa")))
             if h2 is not None:
                 hosts_ctx[k] = h2
     todas, detalle, reemplazos = [], [], []
@@ -1007,6 +1024,12 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
             continue
         if h.get("aviso"):
             avisos = [h["aviso"]] + list(avisos or [])
+        cont = host.get("contorno")
+        if cont:                                           # recinto: cada pieza debe caer DENTRO de su contorno real
+            fuera = [(c["x"], c["y"]) for c in plan if not medidas._en_poligono(c["x"], c["y"], [tuple(p) for p in cont])]
+            if fuera:
+                avisos = list(avisos or []) + [f"{len(fuera)} de {len(plan)} piezas caen FUERA del contorno real del recinto: {fuera[:6]}. "
+                                               "Reduce la rejilla o cambia las separaciones antes de ejecutar."]
         plan = operaciones.asignar_ids(plan, it.get("diseno_id") or DISENO_ID_PREDETERMINADO, host.get("handle") or host["nombre"], it["receta"])
         nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes, tol=motor_ubicacion.TOL_DUPLICADO / u, u=u, reemplazar=bool(reemplazar))
         if reemplazar:
@@ -1014,6 +1037,7 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
         existentes += [{"bloque": c["bloque"], "x": c["x"], "y": c["y"], "item_id": c["item_id"]} for c in nuevas]      # tambien contra lo del propio lote
         todas += nuevas
         detalle.append({**r, "estado": "ok", "a_colocar": len(nuevas), "ya_colocadas": len(omitidas), "avisos": avisos or None,
+                        **({"anfitrion_usado": h["usado"]} if h.get("usado") else {}),
                         "cambiadas": cambiadas or None, "opciones_del_perfil": guardado or None,
                         "piezas": [[c["producto"], c["x"], c["y"], round(c["rot"], 3)] for c in nuevas]})
     por_producto = {}

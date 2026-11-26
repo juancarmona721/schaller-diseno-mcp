@@ -106,3 +106,54 @@ def medidas_recinto(pts: list, u: float = 1.0) -> dict:
             "compacidad": round(4 * math.pi * a / (p * p), 3) if p > 1e-9 else None,
             "rectangularidad": round(a / (ancho * largo), 3) if ancho * largo > 1e-9 else None,
             "centro": [round(cx, 3), round(cy, 3)]}
+
+
+def _en_poligono(x, y, pts, tol=1e-9):
+    """Punto dentro o sobre el borde de un poligono (ray casting + distancia al borde)."""
+    n, dentro = len(pts), False
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        dx, dy = x2 - x1, y2 - y1
+        L2 = dx * dx + dy * dy
+        t = 0.0 if L2 <= 0 else max(0.0, min(1.0, ((x - x1) * dx + (y - y1) * dy) / L2))
+        if math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)) <= tol:
+            return True
+        if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+            dentro = not dentro
+    return dentro
+
+
+def _cruza(a, b, c, d):
+    """Los segmentos ab y cd se cruzan en sus interiores (no solo se tocan)."""
+    def o(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    return o(a, b, c) * o(a, b, d) < 0 and o(c, d, a) * o(c, d, b) < 0
+
+
+def rectangulo_inscrito(pts: list, eps: float = 1e-6) -> dict | None:
+    """Mayor rectangulo de lados paralelos a los ejes que cabe ENTERO dentro del poligono (PURO, sin Shapely). Sirve para repartir piezas en un recinto
+    irregular (L, U) sin que ninguna caiga fuera: la caja envolvente de una L incluye mucho espacio que no es del recinto.
+    Candidatos: las coordenadas de los vertices. -> {x0, y0, x1, y1, area} o None."""
+    if len(pts) < 3:
+        return None
+    xs = sorted({round(p[0], 4) for p in pts})
+    ys = sorted({round(p[1], 4) for p in pts})
+    cand = sorted(((xs[j] - xs[i]) * (ys[l] - ys[k]), i, j, k, l)
+                  for i in range(len(xs)) for j in range(i + 1, len(xs)) for k in range(len(ys)) for l in range(k + 1, len(ys)))
+    n = len(pts)
+    for area, i, j, k, l in reversed(cand):                       # de mayor a menor: la primera valida es la mayor
+        x0, x1, y0, y1 = xs[i], xs[j], ys[k], ys[l]
+        ancho, alto = x1 - x0, y1 - y0
+        if ancho <= 0 or alto <= 0:
+            continue
+        e = max(eps, 1e-4 * max(ancho, alto))
+        if not all(_en_poligono(x, y, pts, e) for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1), ((x0 + x1) / 2, (y0 + y1) / 2))):
+            continue
+        if any(x0 + e < px < x1 - e and y0 + e < py < y1 - e for px, py in pts):
+            continue                                              # un vertice del poligono dentro del rectangulo: el contorno entra en el
+        borde = [((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))]
+        if any(_cruza(a, b, pts[m], pts[(m + 1) % n]) for a, b in borde for m in range(n)):
+            continue
+        return {"x0": x0, "y0": y0, "x1": x1, "y1": y1, "area": round(area, 4)}
+    return None

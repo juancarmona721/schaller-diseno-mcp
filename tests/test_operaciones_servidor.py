@@ -244,3 +244,28 @@ def test_cuadricula_con_separacion_que_no_cabe_avisa():
     import motor_ubicacion as mu
     plan, avisos = mu.planear("cuadricula", {"nombre": "R", "x0": 0, "y0": 0, "x1": 2, "y1": 2}, {"producto": "ci160", "filas": 1, "columnas": 3, "separacion_x": 1.5, "etiquetar": False})
     assert len(plan) == 3 and any("no cabe" in a for a in avisos)
+
+
+def test_recinto_en_L_reparte_en_el_rectangulo_inscrito_y_ninguna_pieza_cae_fuera(monkeypatch):
+    """Un recinto en L: la caja envolvente incluye espacio que no es del recinto. La rejilla se calcula en el mayor rectangulo que cabe y cada pieza se comprueba."""
+    import medidas
+    vistos = _montar(monkeypatch)
+    L = [[0, 0], [10, 0], [10, 4], [4, 4], [4, 10], [0, 10]]
+    zonas = [{"n": 1, "bbox": [0, 0, 10, 10], "area_m2": 64.0, "contorno": L, "medidas": {"angulo_grados": 0}}]
+    monkeypatch.setattr(server, "_zonas_del_plano", lambda *a, **k: {"ok": True, "zonas": zonas, "unidad_m": 1.0})
+    item = {"receta": "cuadricula", "anfitrion": "recinto 1", "producto": "ci160", "filas": 2, "columnas": 3, "etiquetar": False}      # parametros sueltos: se toman como opciones
+    r = server.ubicar_varios([item], ejecutar=False)
+    it = r["items"][0]
+    assert r["ok"] and it["anfitrion_usado"]["tipo"] == "mayor_rectangulo_inscrito" and len(it["piezas"]) == 6
+    assert all(medidas._en_poligono(p[1], p[2], [tuple(q) for q in L]) for p in it["piezas"])
+    assert not any("FUERA" in a for a in (it["avisos"] or []))
+    caja = server.ubicar_varios([{**item, "opciones": {"caja_completa": True}}], ejecutar=False)["items"][0]
+    assert caja["anfitrion_usado"]["tipo"] == "caja_del_recinto" and any("FUERA" in a for a in caja["avisos"])
+
+
+def test_rectangulo_inscrito_de_una_L_y_de_un_rectangulo():
+    import medidas
+    q = medidas.rectangulo_inscrito([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    assert abs(q["area"] - 40.0) < 1e-6                              # 10x4 (la franja horizontal) o 4x10 (la vertical)
+    r = medidas.rectangulo_inscrito([(0, 0), (5, 0), (5, 3), (0, 3)])
+    assert (r["x0"], r["y0"], r["x1"], r["y1"]) == (0, 0, 5, 3)
