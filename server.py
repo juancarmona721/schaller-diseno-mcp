@@ -51,14 +51,15 @@ def _max_objetos() -> int:
     return 10 ** 9 if _ajustes().get("modo_prueba") else int(CFG.get("escritura", {}).get("max_objetos_dibujo", 300))
 
 
-def _registrar_uso(nombre: str, argumentos, ms: float, ok: bool, error=None) -> None:
+def _registrar_uso(nombre: str, argumentos, ms: float, ok: bool, error=None, detalle=None) -> None:
     """Una linea por llamada: herramienta, duracion, resultado y un resumen CORTO de los argumentos. Nunca rompe la herramienta."""
     try:
         resumen = {k: (str(v)[:60]) for k, v in (argumentos or {}).items()}
         RUTA_USO.parent.mkdir(parents=True, exist_ok=True)
         with open(RUTA_USO, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "herramienta": nombre, "ms": int(ms), "ok": ok,
-                                 "error": error, "args": resumen}, ensure_ascii=False) + "\n")
+                                 "error": error, "args": resumen,
+                                 **({"detalle": str(detalle)[:200]} if detalle and not ok else {})}, ensure_ascii=False) + "\n")
     except Exception:
         pass
 
@@ -814,18 +815,19 @@ def _reconciliar_previas(nombre_plano: str, existentes: list, u: float = 1.0) ->
     return salida
 
 
-def _insertar_con_operacion(t: dict, nombre_plano: str, colocaciones: list, existentes: list, ejecutar: bool, confirmacion, unidad_m: float = 1.0) -> tuple[dict, str | None]:
+def _insertar_con_operacion(t: dict, nombre_plano: str, colocaciones: list, existentes: list, ejecutar: bool, confirmacion, unidad_m: float = 1.0,
+                            reemplazos: list | None = None) -> tuple[dict, str | None]:
     """Inserta dejando constancia: diario con la INTENCION antes de tocar el dibujo, XData en cada entidad y cierre con su estado real.
     Ensayo: sin diario. Si no se puede abrir el diario, NO se escribe (la trazabilidad es obligatoria en las escrituras)."""
     args = {"op": "insertar", "colocaciones": colocaciones, "ejecutar": bool(ejecutar), "confirmacion": confirmacion, "max_objetos": _max_objetos(),
-            "unidad_m": unidad_m}
+            "unidad_m": unidad_m, **({"reemplazos": reemplazos} if reemplazos else {})}
     if not ejecutar:
         return acad.diseno(args, **t), None
     op_id, d = operaciones.nuevo_operation_id(), _diario()
     d.limpiar()                                                # operaciones cerradas de hace mas de 30 dias
     try:
         d.iniciar(op_id, operaciones.doc_id(nombre_plano), operaciones.plan_hash(colocaciones), colocaciones,
-                  previos=[e["handle"] for e in existentes if e.get("handle")])
+                  previos=[e["handle"] for e in existentes if e.get("handle")], reemplazos=reemplazos)
     except OSError as e:
         return {"ok": False, "error": "diario_no_disponible", "detalle": f"No pude abrir el diario de operaciones ({e.__class__.__name__}); no se escribio nada."}, None
     args["operacion"] = {"id": op_id, "diario": str(RUTA_OPERACIONES), "cada": operaciones.CHECKPOINT_CADA}
@@ -846,7 +848,7 @@ def _insertar_con_operacion(t: dict, nombre_plano: str, colocaciones: list, exis
 
 @mcp.tool()
 @_serializado
-def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
+def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str | int | None = None, reemplazar: bool = False) -> dict:
     """UBICA TODO UN DISENO EN UNA SOLA LLAMADA (rapido): varias ubicaciones sobre varios anfitriones, leyendo el plano UNA vez.
 
     items = [{"receta": ..., "anfitrion": "<bloque>", "opciones": {...}?, "cerca_de": [x, y]?}, ...]; mismas recetas y opciones que
@@ -854,7 +856,9 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
     que se pisen las llamadas en paralelo. Un item que no se puede resolver (anfitrion inexistente, receta imposible, sin muros) se OMITE y
     se reporta; no frena a los demas. No duplica lo ya colocado ni lo colocado por otro item del mismo lote. Aplica solos los atributos
     guardados en el perfil de cada mueble (cabecera, ancho_cama, puntos...). Con ejecutar=False es un ensayo; con ejecutar=True inserta todo
-    junto. NO preguntes ni pidas ensayo: decide y ejecuta con ejecutar=True; informa supuestos y omitidos al final. Planos grandes: pide `confirmacion` (codigo de la linea de comandos de AutoCAD) salvo que ajustes(modo_prueba=True).
+    junto. CAMBIAR EL PRODUCTO de una posicion ya colocada (p. ej. Moon 60 en vez de Simbiosis): repite el item con el producto nuevo y reemplazar=True;
+    el MCP retira SOLO la pieza anterior si es suya (marcada) y coloca la nueva. Sin reemplazar=True la posicion queda como `cambiadas` y no se
+    toca ni se apila nada. NO preguntes ni pidas ensayo: decide y ejecuta con ejecutar=True; informa supuestos y omitidos al final. Planos grandes: pide `confirmacion` (codigo de la linea de comandos de AutoCAD) salvo que ajustes(modo_prueba=True).
     Devuelve, por item, estado (ok/omitido), cuantas piezas, avisos y motivo; y los totales por producto.
     """
     if (off := _escritura_off()):
@@ -878,7 +882,7 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
         return {"ok": False, "error": "operacion_previa_ambigua", "operaciones_previas": previas,
                 "detalle": "Una operacion anterior quedo a medias y hay piezas sin marca que no se pueden atribuir con seguridad. "
                            "Revisa el dibujo (o usa quitar_colocaciones) antes de volver a escribir aqui. No se escribio nada."}
-    todas, detalle = [], []
+    todas, detalle, reemplazos = [], [], []
     for it, h in zip(items, ctx.get("hosts", [])):
         r = {"receta": it.get("receta") if isinstance(it, dict) else None, "anfitrion": h.get("nombre")}
         if not isinstance(it, dict) or it.get("receta") not in motor_ubicacion.RECETAS:
@@ -895,7 +899,9 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
             detalle.append({**r, "estado": "omitido", "error": "no_se_puede_ubicar", "detalle": str(e)})
             continue
         plan = operaciones.asignar_ids(plan, it.get("diseno_id") or DISENO_ID_PREDETERMINADO, host.get("handle") or host["nombre"], it["receta"])
-        nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes, tol=motor_ubicacion.TOL_DUPLICADO / u, u=u)
+        nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes, tol=motor_ubicacion.TOL_DUPLICADO / u, u=u, reemplazar=bool(reemplazar))
+        if reemplazar:
+            reemplazos += [{"item_id_previo": c["item_id_previo"], "handle": c["handle"]} for c in cambiadas if c.get("handle")]
         existentes += [{"bloque": c["bloque"], "x": c["x"], "y": c["y"], "item_id": c["item_id"]} for c in nuevas]      # tambien contra lo del propio lote
         todas += nuevas
         detalle.append({**r, "estado": "ok", "a_colocar": len(nuevas), "ya_colocadas": len(omitidas), "avisos": avisos or None,
@@ -912,8 +918,11 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
         return {**resumen, "aviso": "No hay nada nuevo que colocar (todo ya estaba puesto o se omitio).", **({"operaciones_previas": previas} if previas else {})}
     if len(todas) > 400:
         return {**resumen, "ok": False, "error": "demasiados_objetos", "detalle": "Mas de 400 piezas en una llamada: divide el lote."}
-    r, op_id = _insertar_con_operacion(t, ctx.get("plano") or "", todas, existentes_dibujo, ejecutar, confirmacion, u)
+    r, op_id = _insertar_con_operacion(t, ctx.get("plano") or "", todas, existentes_dibujo, ejecutar, confirmacion, u, reemplazos)
     extra = {}
+    if reemplazos:
+        extra["reemplazos"] = {"piezas_a_retirar" if not ejecutar else "retiradas": len(reemplazos),
+                               **({"no_retiradas": (r.get("reemplazos") or {}).get("no_retirados")} if (r.get("reemplazos") or {}).get("no_retirados") else {})}
     if ctx.get("aviso_unidades"):
         extra["aviso_unidades"] = ctx["aviso_unidades"]
     if previas:
@@ -969,9 +978,14 @@ def ver_uso(ultimos: int = 40) -> dict:
 
 @mcp.tool()
 @_serializado
-def quitar_colocaciones(ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
+def quitar_colocaciones(ejecutar: bool = False, confirmacion: str | int | None = None, operacion_id: str | None = None,
+                        bloque_contiene: str | None = None) -> dict:
     """BORRA lo que este MCP coloco: SOLO las entidades de las capas SCH_ILUMINACION y SCH_AUDIO (luminarias, parlantes, tiras, rotulos).
     Nunca toca otras capas (mobiliario, arquitectura, vegetacion) ni borra las capas. Sirve para repetir pruebas.
+
+    BORRADO PARCIAL (no hace falta borrar todo para quitar una cosa): `operacion_id` borra solo lo de esa operacion (el id lo devuelve ubicar_varios
+    como `operacion_id`) y `bloque_contiene` solo los bloques cuyo nombre contiene ese texto (con sus rotulos). Se pueden combinar. Si solo quieres
+    CAMBIAR el producto de una posicion usa ubicar_varios con reemplazar=True (retira la pieza anterior y coloca la nueva).
 
     Ensayo por defecto: cuenta que se borraria. En planos grandes exige `confirmacion` (CANDADO: el codigo que aparece en la linea de
     comandos de AutoCAD; pidelo a la persona, nunca lo inventes). Es un borrado: antes de ejecutar=True confirma con la persona el
@@ -979,8 +993,9 @@ def quitar_colocaciones(ejecutar: bool = False, confirmacion: str | int | None =
     """
     if (off := _escritura_off()):
         return off
-    return acad.diseno({"op": "quitar", "ejecutar": bool(ejecutar), "confirmacion": confirmacion,
-                        "max_objetos": _max_objetos()}, **_diseno_tiempos())
+    return acad.diseno({"op": "quitar", "ejecutar": bool(ejecutar), "confirmacion": confirmacion, "max_objetos": _max_objetos(),
+                        **({"operacion_id": operacion_id} if operacion_id else {}), **({"bloque_contiene": bloque_contiene} if bloque_contiene else {})},
+                       **_diseno_tiempos())
 
 
 @mcp.tool()
@@ -1011,7 +1026,7 @@ def _diseno_tiempos() -> dict:
 @_serializado
 def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccion: bool = False,
                         cerca_de: list[float] | None = None, opciones: dict | None = None,
-                        ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
+                        ejecutar: bool = False, confirmacion: str | int | None = None, reemplazar: bool = False) -> dict:
     """UBICA PRODUCTOS SEGUN LA GEOMETRIA REAL DE UN MUEBLE (no coordenadas fijas). Ensayo por defecto; solo AGREGA.
 
     Calcula las posiciones desde el bbox del anfitrion y, cuando hay muros, con RAYOS a muros (primer muro, sin saltar de
@@ -1054,7 +1069,8 @@ def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccio
     if any(x["ambiguas"] for x in previas):
         return {"ok": False, "error": "operacion_previa_ambigua", "operaciones_previas": previas,
                 "detalle": "Una operacion anterior quedo a medias y hay piezas sin marca que no se pueden atribuir con seguridad. No se escribio nada."}
-    nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes_dibujo, tol=motor_ubicacion.TOL_DUPLICADO / u, u=u)
+    nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes_dibujo, tol=motor_ubicacion.TOL_DUPLICADO / u, u=u, reemplazar=bool(reemplazar))
+    reemplazos = [{"item_id_previo": c["item_id_previo"], "handle": c["handle"]} for c in cambiadas if reemplazar and c.get("handle")]
     resumen = {"ok": True, "receta": receta, "anfitrion": {k: host[k] for k in ("nombre", "x0", "y0", "x1", "y1", "w", "h")},
                "muros_cercanos": ctx.get("n_muros", 0), "a_colocar": len(nuevas), "ya_colocadas_omitidas": len(omitidas),
                "opciones_del_perfil": {k: v for k, v in guardado.items() if k in motor_ubicacion.OPCIONES_DEL_PERFIL} or None,
@@ -1063,7 +1079,7 @@ def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccio
         return {**resumen, "aviso": "Todo lo de esta receta ya esta colocado: no se hizo nada."}
     if len(nuevas) > int(_escritura().get("max_puntos", 100)):
         return {**resumen, "ok": False, "error": "demasiados_objetos"}
-    r, op_id = _insertar_con_operacion(t, ctx.get("plano") or "", nuevas, existentes_dibujo, ejecutar, confirmacion, u)
+    r, op_id = _insertar_con_operacion(t, ctx.get("plano") or "", nuevas, existentes_dibujo, ejecutar, confirmacion, u, reemplazos)
     if ctx.get("aviso_unidades"):
         resumen["aviso_unidades"] = ctx["aviso_unidades"]
     if not r.get("ok"):
@@ -1549,7 +1565,8 @@ def _activar_registro_de_uso() -> None:
             raise
         datos = _resultado_como_dict(res)
         ok = not (isinstance(datos, dict) and datos.get("ok") is False)
-        _registrar_uso(name, arguments, (time.time() - t0) * 1000, ok, None if ok else (datos.get("error") if isinstance(datos, dict) else None))
+        _registrar_uso(name, arguments, (time.time() - t0) * 1000, ok, None if ok else (datos.get("error") if isinstance(datos, dict) else None),
+                       None if ok or not isinstance(datos, dict) else datos.get("detalle"))
         metricas.volcar(contexto={"herramienta": name})      # apagada: no hace nada
         return res
     mcp._tool_manager.call_tool = con_registro

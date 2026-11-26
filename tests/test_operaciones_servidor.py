@@ -156,3 +156,54 @@ def test_la_reconciliacion_se_informa_aunque_no_quede_nada_por_colocar(monkeypat
     r2 = server.ubicar_varios([ITEM], ejecutar=True)
     prev = r2["operaciones_previas"][0]
     assert r2["a_colocar"] == 0 and prev["estado"] == "aplicada" and prev["con_capa_incorrecta"] == len(esperados)
+
+
+# ------------------------------------------------------------------------------------------------ reemplazar el producto de una posicion
+def _colocacion_actual(monkeypatch):
+    vistos = _montar(monkeypatch)
+    server.ubicar_varios([ITEM], ejecutar=False)
+    return vistos[-1]["colocaciones"][0]
+
+
+def test_cambiar_el_producto_sin_reemplazar_no_apila_ni_toca_nada(monkeypatch):
+    c0 = _colocacion_actual(monkeypatch)
+    previa = {"item_id": c0["item_id"], "bloque": "OTRO_PRODUCTO", "x": c0["x"], "y": c0["y"], "handle": "A1", "op_id": "op_x"}
+    vistos = _montar(monkeypatch, existentes=[previa])
+    r = server.ubicar_varios([ITEM], ejecutar=True)
+    assert r["items"][0]["cambiadas"][0]["handle"] == "A1" and not any(v["op"] == "insertar" for v in vistos)
+
+
+def test_con_reemplazar_se_pide_retirar_la_pieza_anterior_y_se_coloca_la_nueva(monkeypatch):
+    c0 = _colocacion_actual(monkeypatch)
+    previa = {"item_id": c0["item_id"], "bloque": "OTRO_PRODUCTO", "x": c0["x"], "y": c0["y"], "handle": "A1", "op_id": "op_x"}
+    vistos = _montar(monkeypatch, existentes=[previa])
+    r = server.ubicar_varios([ITEM], ejecutar=True, reemplazar=True)
+    ins = [v for v in vistos if v["op"] == "insertar"][-1]
+    assert r["ok"] and ins["reemplazos"] == [{"item_id_previo": c0["item_id"], "handle": "A1"}] and len(ins["colocaciones"]) >= 1
+    assert r["reemplazos"]["retiradas"] == 1
+    assert server._diario().cargar(r["operacion_id"])["reemplazos"] == ins["reemplazos"]
+
+
+def test_un_ensayo_con_reemplazar_informa_cuantas_piezas_se_retirarian(monkeypatch):
+    c0 = _colocacion_actual(monkeypatch)
+    _montar(monkeypatch, existentes=[{"item_id": c0["item_id"], "bloque": "OTRO", "x": c0["x"], "y": c0["y"], "handle": "A1"}])
+    r = server.ubicar_varios([ITEM], ejecutar=False, reemplazar=True)
+    assert r["reemplazos"] == {"piezas_a_retirar": 1}
+
+
+def test_quitar_parcial_pasa_los_filtros_a_la_sonda(monkeypatch):
+    vistos = []
+    monkeypatch.setattr(server.acad, "diseno", lambda args, **kw: vistos.append(args) or {"ok": True})
+    server.quitar_colocaciones(ejecutar=False, operacion_id="op_1", bloque_contiene="Moon")
+    server.quitar_colocaciones(ejecutar=False)
+    assert vistos[0]["operacion_id"] == "op_1" and vistos[0]["bloque_contiene"] == "Moon"
+    assert "operacion_id" not in vistos[1] and "bloque_contiene" not in vistos[1]
+
+
+def test_el_registro_de_uso_guarda_el_detalle_de_los_fallos(monkeypatch, tmp_path):
+    import asyncio
+    monkeypatch.setattr(server, "RUTA_USO", tmp_path / "uso.jsonl")
+    monkeypatch.setattr(server.acad, "diseno", lambda args, **kw: {"ok": False, "error": "fallo_diseno", "detalle": "com_error: Numero de parametros no valido"})
+    asyncio.run(server.mcp.call_tool("ubicar_varios", {"items": [{"receta": "cama", "anfitrion": "X"}]}))
+    r = server.ver_uso()
+    assert r["recientes"][-1]["error"] == "fallo_diseno" and "parametros" in r["recientes"][-1]["detalle"]

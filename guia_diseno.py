@@ -49,6 +49,9 @@ FLUJO NORMAL
    - Un bloque cuya caja incluye mesas de noche es mas ancho que la cama: ajusta ancho_cama (la cama real mide ~2 m) y declaralo.
    - Un item que no se puede resolver se OMITE y se reporta (la herramienta ya sigue con los demas).
    - Es idempotente: no duplica lo ya colocado ("ya_colocadas" mayor que 0 no es un error).
+   - CAMBIAR UN PRODUCTO ya colocado (p. ej. Moon 60 en lugar de Simbiosis): repite el item con el producto nuevo y reemplazar=True. NO borres todo
+     ni pidas borrar a mano: retira solo la pieza anterior (si es del MCP) y coloca la nueva.
+   - Quitar solo una parte: quitar_colocaciones(operacion_id=...) o quitar_colocaciones(bloque_contiene="...") (sigue siendo un borrado: confirma).
 5. Para rehacer una prueba: quitar_colocaciones (borra SOLO las capas SCH_ILUMINACION y SCH_AUDIO). Confirma el alcance antes de usarlo.
 6. ajustes(modo_prueba=True) quita el codigo de confirmacion en planos grandes: solo si el usuario lo pide para una sesion de pruebas.
 

@@ -46,19 +46,20 @@ def logical_item_id(design_id: str, host_id: str, receta: str, slot_id: str) -> 
 
 
 def asignar_ids(colocaciones: list, design_id: str, host_id: str, receta: str) -> list:
-    """Agrega `item_id` (y `slot`) a cada colocacion. Version inicial: la posicion es el ORDEN de la receta dentro de cada producto
-    (cabecera_1, cabecera_2...). Es estable mientras la receta sea determinista; las recetas con nombres funcionales (mesita_izq) llegan
-    con las transformaciones locales de la Fase 1C. Un rotulo hereda el id de su pieza con sufijo '#rotulo'."""
-    contador, salida = {}, []
-    for c in colocaciones:
-        n = contador[c["producto"]] = contador.get(c["producto"], 0) + 1
-        slot = f"{c['producto']}_{n}"
-        d = {**c, "slot": slot, "item_id": logical_item_id(design_id, host_id, receta, slot)}
-        salida.append(d)
+    """Agrega `item_id` (y `slot`) a cada colocacion. La posicion es el ORDEN de la pieza dentro de la receta (pos_1, pos_2...) y NO incluye el
+    producto: cambiar la luminaria de una posicion es una MODIFICACION de esa pieza, no una pieza nueva. Es estable mientras la receta sea
+    determinista; los nombres funcionales (mesita_izq) llegan con las recetas rehechas en el marco local.
+    `item_id_legado` es la identidad que usaban las piezas colocadas antes de este cambio (producto_n): sirve para reconocerlas, no para escribirlas."""
+    por_producto, salida = {}, []
+    for n, c in enumerate(colocaciones, 1):
+        k = por_producto[c["producto"]] = por_producto.get(c["producto"], 0) + 1
+        slot = f"pos_{n}"
+        salida.append({**c, "slot": slot, "item_id": logical_item_id(design_id, host_id, receta, slot),
+                       "item_id_legado": logical_item_id(design_id, host_id, receta, f"{c['producto']}_{k}")})
     return salida
 
 
-def sin_duplicados_logico(plan: list, existentes: list, tol: float = 0.30, u: float = 1.0) -> tuple[list, list, list]:
+def sin_duplicados_logico(plan: list, existentes: list, tol: float = 0.30, u: float = 1.0, reemplazar: bool = False) -> tuple[list, list, list]:
     """Separa (nuevas, ya_colocadas, cambiadas).
 
     1. Misma identidad logica ya presente -> ya colocada. Si esta en otra posicion (> tol) o con otro producto, se reporta en `cambiadas`
@@ -66,6 +67,8 @@ def sin_duplicados_logico(plan: list, existentes: list, tol: float = 0.30, u: fl
     2. Sin identidad (piezas antiguas sin marca): vale la proximidad (mismo bloque a <= tol), como hasta ahora.
     Una pieza CON marca de otra identidad NO bloquea por cercania: dos luminarias legitimas a 15 cm ya no se descartan.
     `tol` va en UNIDADES DEL DIBUJO y `u` (metros por unidad) solo sirve para informar la distancia en metros.
+    Con reemplazar=True, una pieza propia cambiada (otro producto o desplazada) pasa a `nuevas` y `cambiadas` trae el handle y la identidad de la
+    anterior para retirarla: el reemplazo exige que la pieza anterior sea nuestra (marcada) y conocida por su handle.
     """
     por_id = {e["item_id"]: e for e in existentes if e.get("item_id")}
     sin_marca = [e for e in existentes if not e.get("item_id")]
@@ -73,12 +76,17 @@ def sin_duplicados_logico(plan: list, existentes: list, tol: float = 0.30, u: fl
     for c in plan:
         iid = c.get("item_id")
         previo = por_id.get(iid) if iid else None
+        if previo is None and c.get("item_id_legado"):
+            previo = por_id.get(c["item_id_legado"])                    # pieza colocada con la identidad anterior (producto_n)
         if previo is not None:
-            ya.append(c)
             d = math.hypot(previo["x"] - c["x"], previo["y"] - c["y"])
             if d > tol or previo.get("bloque") != c["bloque"]:
                 cambiadas.append({"item_id": iid, "slot": c.get("slot"), "bloque_existente": previo.get("bloque"), "bloque_nuevo": c["bloque"],
-                                  "distancia_m": round(d * u, 3)})
+                                  "distancia_m": round(d * u, 3), "item_id_previo": previo.get("item_id"), "handle": previo.get("handle")})
+                if reemplazar and previo.get("handle"):
+                    nuevas.append(c)                                   # se coloca la nueva y se retira la anterior (solo si es nuestra y tiene handle)
+                    continue
+            ya.append(c)
             continue
         if any(e["bloque"] == c["bloque"] and math.hypot(e["x"] - c["x"], e["y"] - c["y"]) <= tol for e in sin_marca):
             ya.append(c)
@@ -110,10 +118,10 @@ class Diario:
         except (OSError, ValueError):
             return None
 
-    def iniciar(self, op_id: str, doc: str, plan: str, items: list, previos: list | None = None) -> None:
+    def iniciar(self, op_id: str, doc: str, plan: str, items: list, previos: list | None = None, reemplazos: list | None = None) -> None:
         """Guarda la INTENCION antes de tocar el dibujo. `previos`: handles de lo que ya existia en las capas propias (para no adoptarlo)."""
         self._escribir(op_id, {"op_id": op_id, "doc": doc, "plan_hash": plan, "estado": "pendiente", "creada": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                               "aplicados": 0, "previos": list(previos or []),
+                               "aplicados": 0, "previos": list(previos or []), "reemplazos": list(reemplazos or []),
                                "items": [{k: c.get(k) for k in ("item_id", "bloque", "x", "y", "rot")} for c in items]})
 
     def checkpoint(self, op_id: str, aplicados: int, forzar: bool = False) -> bool:

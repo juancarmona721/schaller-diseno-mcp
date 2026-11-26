@@ -24,10 +24,13 @@ def test_plan_hash_cambia_con_el_contenido_y_no_con_el_formato():
 def test_los_ids_logicos_no_incluyen_el_producto_y_son_estables():
     plan = [col("cctevo58", 0, 0), col("cctevo58", 1, 0), col("durastrip", 0, 1)]
     ids = op.asignar_ids(plan, "d1", "8A21", "cama")
-    assert [c["slot"] for c in ids] == ["cctevo58_1", "cctevo58_2", "durastrip_1"]
-    assert ids[0]["item_id"] == "d1|8A21|cama|cctevo58_1"
+    assert [c["slot"] for c in ids] == ["pos_1", "pos_2", "pos_3"]
+    assert ids[0]["item_id"] == "d1|8A21|cama|pos_1"
+    assert [c["item_id_legado"] for c in ids] == ["d1|8A21|cama|cctevo58_1", "d1|8A21|cama|cctevo58_2", "d1|8A21|cama|durastrip_1"]
     assert [c["item_id"] for c in op.asignar_ids(plan, "d1", "8A21", "cama")] == [c["item_id"] for c in ids]
-    assert all(len(c["item_id"]) < 200 for c in ids)                             # cabe en un campo XData (255)
+    cambiado = op.asignar_ids([col("moon60", 0, 0), col("cctevo58", 1, 0), col("durastrip", 0, 1)], "d1", "8A21", "cama")
+    assert [c["item_id"] for c in cambiado] == [c["item_id"] for c in ids]                # cambiar el producto NO cambia la identidad de la posicion
+    assert all(len(c["item_id"]) < 200 for c in ids)                                      # cabe en un campo XData (255)
 
 
 # ------------------------------------------------------------------------------------------------ deduplicacion
@@ -39,11 +42,10 @@ def test_reintentar_la_misma_operacion_no_duplica():
 
 
 def test_dos_piezas_legitimas_a_15_cm_ya_no_se_descartan_por_cercania():
-    existentes = [{"item_id": "d|H|r|a_1", "bloque": "A", "x": 0.0, "y": 0.0}]
-    nuevo = op.asignar_ids([col("a", 0.15, 0.0)], "d", "H", "r")
-    nuevo[0]["item_id"] = "d|H|r|a_2"                                             # otra posicion funcional
-    nuevas, ya, _ = op.sin_duplicados_logico(nuevo, existentes)
-    assert len(nuevas) == 1 and ya == []
+    plan = op.asignar_ids([col("a", 0.0, 0.0), col("a", 0.15, 0.0)], "d", "H", "r")
+    existentes = [{"item_id": plan[0]["item_id"], "bloque": "A", "x": 0.0, "y": 0.0}]
+    nuevas, ya, _ = op.sin_duplicados_logico(plan, existentes)
+    assert [c["slot"] for c in nuevas] == ["pos_2"] and [c["slot"] for c in ya] == ["pos_1"]
 
 
 def test_la_pieza_antigua_sin_marca_se_sigue_reconociendo_por_proximidad():
@@ -132,3 +134,41 @@ def test_dos_candidatos_o_un_candidato_para_dos_piezas_es_ambiguo_y_pide_reconci
 def test_otro_producto_o_fuera_de_tolerancia_no_se_adopta():
     r = op.reconciliar(ESP[1:], [], [{"handle": "9", "bloque": "B", "x": 1.0, "y": 0.0}, {"handle": "8", "bloque": "A", "x": 1.2, "y": 0.0}], [])
     assert r["adoptables"] == [] and r["pendientes"] == ["i2"]
+
+
+# ------------------------------------------------------------------------------------------------ cambiar el producto de una posicion
+def test_cambiar_el_producto_de_una_posicion_se_reporta_como_cambiada_y_no_se_apila():
+    viejo = op.asignar_ids([col("simbiosis", 5.0, 5.0, bloque="SIMBIOSIS")], "d", "H", "centro")[0]
+    existentes = [{"item_id": viejo["item_id"], "bloque": "SIMBIOSIS", "x": 5.0, "y": 5.0, "handle": "A1"}]
+    nuevo = op.asignar_ids([col("moon60", 5.0, 5.0, bloque="MOON60")], "d", "H", "centro")
+    nuevas, ya, cambiadas = op.sin_duplicados_logico(nuevo, existentes)
+    assert nuevas == [] and len(ya) == 1 and cambiadas[0]["bloque_existente"] == "SIMBIOSIS" and cambiadas[0]["bloque_nuevo"] == "MOON60"
+
+
+def test_con_reemplazar_la_pieza_cambiada_se_coloca_y_se_informa_cual_retirar():
+    viejo = op.asignar_ids([col("simbiosis", 5.0, 5.0, bloque="SIMBIOSIS")], "d", "H", "centro")[0]
+    existentes = [{"item_id": viejo["item_id"], "bloque": "SIMBIOSIS", "x": 5.0, "y": 5.0, "handle": "A1"}]
+    nuevo = op.asignar_ids([col("moon60", 5.0, 5.0, bloque="MOON60")], "d", "H", "centro")
+    nuevas, ya, cambiadas = op.sin_duplicados_logico(nuevo, existentes, reemplazar=True)
+    assert len(nuevas) == 1 and ya == [] and cambiadas[0]["handle"] == "A1" and cambiadas[0]["item_id_previo"] == viejo["item_id"]
+
+
+def test_sin_handle_conocido_no_se_reemplaza_aunque_se_pida():
+    viejo = op.asignar_ids([col("simbiosis", 5.0, 5.0, bloque="SIMBIOSIS")], "d", "H", "centro")[0]
+    existentes = [{"item_id": viejo["item_id"], "bloque": "SIMBIOSIS", "x": 5.0, "y": 5.0}]
+    nuevo = op.asignar_ids([col("moon60", 5.0, 5.0, bloque="MOON60")], "d", "H", "centro")
+    nuevas, ya, cambiadas = op.sin_duplicados_logico(nuevo, existentes, reemplazar=True)
+    assert nuevas == [] and len(ya) == 1                                                  # nunca se retira algo que no se pueda identificar
+
+
+def test_las_piezas_colocadas_con_la_identidad_anterior_se_siguen_reconociendo():
+    plan = op.asignar_ids([col("cctevo58", 1.0, 1.0, bloque="CCT"), col("cctevo58", 2.0, 1.0, bloque="CCT")], "d", "H", "cama")
+    previas = [{"item_id": c["item_id_legado"], "bloque": "CCT", "x": c["x"], "y": c["y"], "handle": str(i)} for i, c in enumerate(plan)]
+    nuevas, ya, cambiadas = op.sin_duplicados_logico(plan, previas)
+    assert nuevas == [] and len(ya) == 2 and cambiadas == []
+
+
+def test_el_diario_guarda_los_reemplazos_previstos(tmp_path):
+    d = op.Diario(tmp_path)
+    d.iniciar("op_1", "docA", "h", [], previos=["1"], reemplazos=[{"item_id_previo": "x", "handle": "A1"}])
+    assert d.cargar("op_1")["reemplazos"] == [{"item_id_previo": "x", "handle": "A1"}]

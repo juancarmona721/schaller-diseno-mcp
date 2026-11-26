@@ -108,3 +108,39 @@ def test_reintentar_se_recupera_de_un_fallo_pasajero(monkeypatch):
     assert sd.reintentar(inestable) == "ok" and len(llamadas) == 3
     with __import__("pytest").raises(ValueError):
         sd.reintentar(lambda: (_ for _ in ()).throw(ValueError("real")))
+
+
+# ------------------------------------------------------------------------------------------------ errores COM pasajeros
+def test_numero_de_parametros_no_valido_se_reintenta_poco_y_luego_falla():
+    import sondas.sonda_diseno as sd
+    llamadas = []
+
+    def pasajero():
+        llamadas.append(1)
+        if len(llamadas) < 3:
+            raise Exception("(-2147352562, 'Número de parámetros no válido.', None, None)")
+        return "ok"
+    assert sd.reintentar(pasajero, intentos=10, espera=0) == "ok" and len(llamadas) == 3
+
+    llamadas.clear()
+
+    def permanente():
+        llamadas.append(1)
+        raise Exception("(-2147352562, 'Número de parámetros no válido.', None, None)")
+    import pytest
+    with pytest.raises(Exception):
+        sd.reintentar(permanente, intentos=10, espera=0)
+    assert len(llamadas) == 3                                              # un error real y repetible no espera 10 intentos
+
+
+def test_otros_errores_no_se_reintentan():
+    import sondas.sonda_diseno as sd
+    import pytest
+    n = []
+
+    def malo():
+        n.append(1)
+        raise ValueError("otra cosa")
+    with pytest.raises(ValueError):
+        sd.reintentar(malo, intentos=10, espera=0)
+    assert len(n) == 1

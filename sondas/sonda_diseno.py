@@ -37,13 +37,25 @@ def _rechazada(ex) -> bool:
     return isinstance(ex, AttributeError) and "has no attribute" not in t and " " not in t.strip()
 
 
+def _parametros_invalidos(ex) -> bool:
+    """'Numero de parametros no valido' (DISP_E_BADPARAMCOUNT): AutoCAD lo devuelve a veces de forma PASAJERA justo despues de un borrado o una regeneracion
+    grande. Se reintenta poco (3 veces): si es un error real y repetible, falla pronto en vez de esperar 10 s."""
+    t = str(ex).lower()
+    return "-2147352562" in t or "badparamcount" in t or "invalid number of parameters" in t or "mero de par" in t and "metros no v" in t
+
+
 def reintentar(fn, intentos=10, espera=1.0):
     """AutoCAD responde 'llamada rechazada' si esta ocupado (comando activo, regenerando...): se espera y se reintenta."""
     for i in range(intentos):
         try:
             return fn()
         except Exception as ex:
-            if not _rechazada(ex) or i == intentos - 1:
+            if _rechazada(ex):
+                if i == intentos - 1:
+                    raise
+            elif _parametros_invalidos(ex) and i < 2:
+                pass
+            else:
                 raise
             time.sleep(espera)
 
@@ -576,6 +588,42 @@ def unidad_plano_m(doc):
     return 1.0, "El dibujo no tiene unidades (INSUNITS=0): se asumen metros. Revisa el tamano de lo insertado."
 
 
+def _retirar_reemplazados(doc, reemplazos):
+    """Retira las piezas PROPIAS que van a ser sustituidas (y sus rotulos). Solo borra una entidad si su handle sigue existiendo y su marca XData es de
+    este MCP con la identidad esperada: nunca algo sin marca ni de otra identidad. Devuelve (retirados, [item_id que no se pudieron retirar])."""
+    retirados, fallidos = 0, []
+    rotulos = {}
+    try:
+        ss = _conjunto(doc, "SS_DISENO_ROT", 5, None, None, [0, 1001], ["TEXT", operaciones.APP_XDATA])
+        try:
+            for i in range(ss.Count):
+                e = ss.Item(i)
+                _op, iid = _leer_marca(e)
+                if iid and iid.endswith("#rotulo"):
+                    rotulos.setdefault(iid[:-len("#rotulo")], []).append(e)
+        finally:
+            ss.Delete()
+    except Exception:
+        pass
+    for r in reemplazos:
+        try:
+            e = doc.HandleToObject(r["handle"])
+            _op, iid = _leer_marca(e)
+            if not iid or iid != r["item_id_previo"]:
+                fallidos.append(r["item_id_previo"])                 # ya no es la pieza que se esperaba: no se toca
+                continue
+            e.Delete()
+            retirados += 1
+            for rot in rotulos.get(iid, []):
+                try:
+                    rot.Delete()
+                except Exception:
+                    pass
+        except Exception:
+            fallidos.append(r.get("item_id_previo"))
+    return retirados, fallidos
+
+
 def op_insertar(acad, doc, args):
     from sonda_escribir import candado, existe
     cols = args.get("colocaciones") or []
@@ -606,6 +654,7 @@ def op_insertar(acad, doc, args):
     unidad_m, aviso_u = (float(args["unidad_m"]), None) if args.get("unidad_m") else unidad_plano_m(doc)
     if aviso_u:
         avisos.append(aviso_u)
+    retirados, no_retirados = _retirar_reemplazados(doc, args.get("reemplazos") or []) if args.get("reemplazos") else (0, [])
     escalas = {}    # bloque -> (escala, como). La primera copia de cada bloque se inserta a 1 y se MIDE: lo que se ve es lo que cuenta.
     operacion = args.get("operacion") or None
     diario = None
@@ -633,15 +682,15 @@ def op_insertar(acad, doc, args):
             else:
                 fallos_xdata += 1
         if not en_su_capa:
-            ref.Layer = c["capa"]
+            reintentar(lambda: setattr(ref, "Layer", c["capa"]))
             llamada("Layer")
         if nombre not in escalas:
             a0 = reintentar(lambda: _bbox(ref))
             esc, como = motor_ubicacion.escala_por_medida(max(a0[2] - a0[0], a0[3] - a0[1]), c.get("tam_m"), unidad_m, float(c["escala"]))
             if esc != 1.0:
-                ref.XScaleFactor = esc
-                ref.YScaleFactor = esc
-                ref.ZScaleFactor = esc
+                reintentar(lambda: setattr(ref, "XScaleFactor", esc))
+                reintentar(lambda: setattr(ref, "YScaleFactor", esc))
+                reintentar(lambda: setattr(ref, "ZScaleFactor", esc))
             escalas[nombre] = (esc, como)
             e = esc
         a = reintentar(lambda: _bbox(ref))
@@ -657,14 +706,14 @@ def op_insertar(acad, doc, args):
             avisos.append(f"{c['bloque']}: mide {real:.3g} m y se esperaban ~{c['tam_m']} m (escala {e:g}, {escalas[c['bloque']][1]}). Revisa en pantalla.")
         if c.get("ancla") != "bbox":
             desv_max = max(desv_max, desv * unidad_m)
-        handles.append(str(ref.Handle))
+        handles.append(reintentar(lambda: str(ref.Handle)))
         llamada("Handle")
         et = c.get("etiqueta")
         if et:
             t = reintentar(lambda: ms.AddText(et["texto"], pt(et["x"], et["y"]), float(et["altura"])))
-            t.Layer = et["capa"]
-            t.Color = int(et["color"])
-            handles.append(str(t.Handle))
+            reintentar(lambda: setattr(t, "Layer", et["capa"]))
+            reintentar(lambda: setattr(t, "Color", int(et["color"])))
+            handles.append(reintentar(lambda: str(t.Handle)))
             llamada("AddText")
             llamada("Layer")
             llamada("Color")
@@ -680,6 +729,8 @@ def op_insertar(acad, doc, args):
            "desviacion_max_m": round(desv_max, 3), "objetos_en_modelo": total}
     if operacion:
         res["operacion"] = {"id": operacion["id"], "piezas_marcadas": marcadas, "fallos_xdata": fallos_xdata}
+    if args.get("reemplazos"):
+        res["reemplazos"] = {"retirados": retirados, "no_retirados": no_retirados}
     m = resumen()
     if m:                                   # solo con SCHALLER_TRACE=1; apagada devuelve None y el resultado queda IDENTICO al de antes
         res["_metricas"] = m
@@ -706,6 +757,31 @@ def op_quitar(doc, args):
     ss = _conjunto(doc, "SS_DISENO_QUITAR", 5, None, None, [8], [",".join(CAPAS_SCH)])
     try:
         ents = [ss.Item(i) for i in range(ss.Count)]
+        op_filtro, bloque_filtro = args.get("operacion_id"), (args.get("bloque_contiene") or "").casefold()
+        if op_filtro or bloque_filtro:
+            # borrado PARCIAL: solo lo de esa operacion y/o los bloques cuyo nombre contiene el texto (con sus rotulos, que comparten identidad)
+            elegidos, ids = [], set()
+            for e in ents:
+                try:
+                    if str(e.ObjectName) != "AcDbBlockReference":
+                        continue
+                    op_e, iid = _leer_marca(e)
+                    if op_filtro and op_e != op_filtro:
+                        continue
+                    if bloque_filtro and bloque_filtro not in str(e.EffectiveName).casefold():
+                        continue
+                    elegidos.append(e)
+                    if iid:
+                        ids.add(iid + "#rotulo")
+                except Exception:
+                    pass
+            for e in ents:
+                try:
+                    if str(e.ObjectName) in ("AcDbText", "AcDbMText") and _leer_marca(e)[1] in ids:
+                        elegidos.append(e)
+                except Exception:
+                    pass
+            ents = elegidos
         cuenta = collections.Counter()
         for e in ents:
             try:
@@ -732,7 +808,8 @@ def op_quitar(doc, args):
         quedan = int(ss2.Count)
     finally:
         ss2.Delete()
-    return {"ok": fallos == 0 and quedan == 0, "ejecutado": True, "borrados": borrados, "fallos": fallos, "quedan_en_capas_sch": quedan,
+    parcial = bool(args.get("operacion_id") or args.get("bloque_contiene"))
+    return {"ok": fallos == 0 and (parcial or quedan == 0), "ejecutado": True, "borrados": borrados, "fallos": fallos, "quedan_en_capas_sch": quedan,
             "detalle": resumen, "objetos_en_modelo_antes": total, "objetos_en_modelo_ahora": int(doc.ModelSpace.Count),
             "aviso": "Ctrl+Z en AutoCAD deshace el borrado si fue un error."}
 
