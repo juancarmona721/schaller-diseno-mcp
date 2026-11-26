@@ -534,15 +534,23 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
         except (OSError, ValueError):
             pass
     t = _tiempos()
-    raw = acad.plano_crudo(timeout_s=t["timeout_s"], timeout_lectura_s=max(t["timeout_lectura_s"], 60.0))
+    raw = acad.plano_crudo(timeout_s=t["timeout_s"], timeout_lectura_s=max(t["timeout_lectura_s"], 60.0), cache_dir=CARPETA_CACHE / "contenedores")
     if not raw.get("ok"):
         return raw
+    if _ajustes().get("guardar_lectura"):                  # depuracion (opt-in): la lectura cruda queda en el PC del usuario para analizarla sin AutoCAD
+        try:
+            destino = _RAIZ_USUARIO / "debug"
+            destino.mkdir(parents=True, exist_ok=True)
+            (destino / f"lectura_{zonas_motor.slug_proyecto(nombre)}.json").write_text(json.dumps(raw), encoding="utf-8")
+        except OSError:
+            pass
     res = zonas_motor.construir_zonas(raw, VOCAB, perfil, tipologia)
     res = {"ok": True, "plano": raw.get("plano"), "origen_datos": "lectura", "tiempo_lectura_s": raw.get("tiempo_lectura_s"),
            "leido": {"textos": len(raw["textos"]), "poligonos": len(raw["poligonos"]), "bloques": len(raw["bloques"]),
                       "definiciones": len(raw.get("definiciones") or {}),
                      "elementos_en_contenedores": raw.get("elementos_en_contenedores", 0)},
-           "avisos": raw.get("avisos", []) + ([res["aviso_unidades"]] if res.get("aviso_unidades") else []), **res}
+           "avisos": raw.get("avisos", []) + ([res["aviso_unidades"]] if res.get("aviso_unidades") else []), **res,
+           **({"lectura_incompleta": True} if (raw.get("lectura") or {}).get("contenedores_incompletos") else {})}
     try:
         CARPETA_CACHE.mkdir(exist_ok=True)
         ruta.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
@@ -597,6 +605,9 @@ def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = F
                                         "informa supuestos y omitidos al final. Si pidio solo CONSULTAR o evaluar: no coloques nada. "
                                         "Las zonas con candidato=true o confianza baja son HIPOTESIS (poligonos sin rotulo): usalas para decidir, pero declaralas como "
                                         "supuesto y no las presentes como confirmadas. Los muebles con rol_origen='inferido' vienen de la definicion de su bloque."}
+        if res.get("lectura_incompleta"):
+            res["siguiente_paso"] += (" LA LECTURA DEL INTERIOR DE UN BLOQUE QUEDO INCOMPLETA: repite escanear_zonas con forzar_recarga=True (continua donde quedo, es "
+                                      "rapido) hasta que `lectura_incompleta` desaparezca, antes de dar las medidas como definitivas.")
         if not res.get("total"):
             res["diagnostico"] = _diagnostico_sin_zonas(res.get("resumen_lectura") or {})
     return res
@@ -945,15 +956,19 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
 
 
 @mcp.tool()
-def ajustes(modo_prueba: bool | None = None) -> dict:
+def ajustes(modo_prueba: bool | None = None, guardar_lectura: bool | None = None) -> dict:
     """Ajustes locales del MCP (se guardan en el PC del usuario). Sin argumentos, muestra los actuales.
 
     modo_prueba=True: en planos grandes NO pide el codigo de confirmacion de AutoCAD. Solo para sesiones de prueba: todo lo colocado va a las
     capas SCH_ILUMINACION y SCH_AUDIO y se deshace con quitar_colocaciones (o Ctrl+Z). modo_prueba=False restablece la proteccion.
+    guardar_lectura=True (depuracion): cada escaneo guarda la lectura cruda del plano en el PC del usuario (carpeta debug) para analizarla sin AutoCAD.
     """
     actuales = _ajustes()
+    if guardar_lectura is not None:
+        actuales["guardar_lectura"] = bool(guardar_lectura)
     if modo_prueba is not None:
         actuales["modo_prueba"] = bool(modo_prueba)
+    if modo_prueba is not None or guardar_lectura is not None:
         try:
             RUTA_AJUSTES.parent.mkdir(parents=True, exist_ok=True)
             RUTA_AJUSTES.write_text(json.dumps(actuales, indent=1), encoding="utf-8")

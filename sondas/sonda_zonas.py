@@ -7,11 +7,13 @@ Usa filtros nativos de AutoCAD (seleccion global por tipo) y no la seleccion por
 Tambien entra un nivel en bloques "contenedor" (base, arq, planta...) porque muchos planos traen la arquitectura dentro de un bloque.
 Argumento (JSON en argv[1], opcional): {"tiempo_max_s": n}
 """
+import hashlib
 import json
 import math
 import os
 import sys
 import time
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # -I no incluye la raiz del proyecto
 
@@ -219,6 +221,41 @@ def _procesar_polilinea(e, on, tr):
     return poligono, segs, capa
 
 
+def _ruta_cache_contenedor(cache_dir, doc, ref, defn):
+    """Archivo de cache de UN bloque contenedor: depende del dibujo, de la instancia (su handle) y de cuantas entidades tiene la definicion (si cambia, vale otra)."""
+    if not cache_dir:
+        return None
+    try:
+        clave = hashlib.sha1(f"{doc.Name}|{ref.Handle}|{int(defn.Count)}".encode("utf-8")).hexdigest()[:16]
+        return Path(cache_dir) / f"cont_{clave}.json"
+    except Exception:
+        return None
+
+
+def _cargar_cache_contenedor(ruta):
+    try:
+        if ruta is not None and ruta.is_file():
+            d = json.loads(ruta.read_text(encoding="utf-8"))
+            if isinstance(d, dict) and "leidas" in d:
+                return d
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _guardar_cache_contenedor(ruta, datos):
+    """Escritura atomica. Un fallo de disco no rompe el escaneo (solo se pierde el avance)."""
+    if ruta is None:
+        return
+    try:
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        tmp = ruta.with_suffix(".tmp")
+        tmp.write_text(json.dumps(datos), encoding="utf-8")
+        os.replace(tmp, ruta)
+    except OSError:
+        pass
+
+
 def _agregar_segmentos(e, on, tr, salida):
     """Segmentos [x1, y1, x2, y2, capa] de una LINEA o de una polilinea (abierta o cerrada), llevados a coordenadas del plano. Para planos sin capas de muros."""
     capa = str(e.Layer)
@@ -363,6 +400,7 @@ def leer(doc, args) -> dict:
     # ---- un nivel dentro de bloques contenedor (arquitectura dentro de un bloque). Ademas de textos, poligonos y bloques se leen las LINEAS y trazos (abiertos
     # o cerrados) con su capa: son la materia prima de los muros cuando el plano no los trae en el espacio modelo.
     dentro, lineas, trunc_lineas, leidas_cont = 0, [], False, 0
+    cont_completos, cont_incompletos = 0, 0
     t_cont = time.time()
     for ref in contenedores:
         try:
@@ -370,9 +408,25 @@ def leer(doc, args) -> dict:
             if defn.Count < 30:
                 continue
             tr = Transformacion(ref)
-            for j in range(min(defn.Count, MAX_ENTIDADES_CONTENEDOR)):
+            total_def = min(int(defn.Count), MAX_ENTIDADES_CONTENEDOR)
+            ruta_cache = _ruta_cache_contenedor(args.get("cache_dir"), doc, ref, defn)
+            previo = _cargar_cache_contenedor(ruta_cache)           # lectura PROGRESIVA: lo ya leido en un escaneo anterior no se vuelve a leer
+            j0 = 0
+            if previo:
+                textos.extend(previo.get("textos", []))
+                poligonos.extend(previo.get("poligonos", []))
+                bloques.extend(previo.get("bloques", []))
+                lineas.extend(previo.get("lineas", []))
+                dentro += int(previo.get("dentro", 0))
+                j0 = int(previo.get("leidas", 0))
+                leidas_cont += j0
+                if previo.get("completo") or j0 >= total_def:
+                    cont_completos += 1
+                    continue
+            marca = (len(textos), len(poligonos), len(bloques), len(lineas))
+            dentro0, procesadas = dentro, j0
+            for j in range(j0, total_def):
                 if time.time() - t0 > limite or time.time() - t_cont > PRESUPUESTO_CONTENEDORES_S:
-                    avisos.append(f"Tiempo agotado leyendo el interior de un bloque contenedor ({j} de {defn.Count} entidades).")
                     break
                 try:
                     sub = defn.Item(j)
@@ -390,15 +444,27 @@ def leer(doc, args) -> dict:
                     elif on == "AcDbBlockReference":
                         agregar_bloque(sub, tr)
                     else:
+                        procesadas = j + 1
                         continue
                     dentro += 1
-                    if len(lineas) >= MAX_LINEAS:
-                        trunc_lineas = True
                 except Exception:
                     pass
-                if trunc_lineas:
+                procesadas = j + 1
+                if len(lineas) >= MAX_LINEAS:
+                    trunc_lineas = True
                     avisos.append(f"Mas de {MAX_LINEAS} lineas dentro del bloque contenedor: solo se usan las primeras.")
                     break
+            completo = procesadas >= total_def or trunc_lineas
+            if completo:
+                cont_completos += 1
+            else:
+                cont_incompletos += 1
+                avisos.append(f"Lectura PARCIAL del interior de un bloque contenedor ({procesadas} de {defn.Count} entidades). Repite el escaneo con "
+                              "forzar_recarga=True: continua donde quedo y lo completa.")
+            _guardar_cache_contenedor(ruta_cache, {
+                "leidas": procesadas, "completo": completo, "dentro": dentro,
+                "textos": (previo or {}).get("textos", []) + textos[marca[0]:], "poligonos": (previo or {}).get("poligonos", []) + poligonos[marca[1]:],
+                "bloques": (previo or {}).get("bloques", []) + bloques[marca[2]:], "lineas": (previo or {}).get("lineas", []) + lineas[marca[3]:]})
         except Exception:
             pass
     # ---- muros (capas con nombre de muro/tabique/pared/columna...): materia prima de los recintos por geometria
@@ -411,8 +477,8 @@ def leer(doc, args) -> dict:
         if n in candidatas or n.startswith("*"):
             continue
         w, h = (b["x1"] - b["x0"]) * unidad_m, (b["y1"] - b["y0"]) * unidad_m
-        if min(w, h) < 0.4:
-            continue
+        if min(w, h) < 0.4 or vocab.contenedores.search(n):
+            continue                                    # demasiado pequeno, o es el propio bloque contenedor (el plano), no un mueble
         rol, ign = zonas_motor.rol_de_bloque(n, b["capa"], vocab, {})
         if rol or ign:
             continue
@@ -429,7 +495,8 @@ def leer(doc, args) -> dict:
     if len(orden) > MAX_DEFINICIONES:
         avisos.append(f"Solo se abrieron las {MAX_DEFINICIONES} definiciones mas grandes de {len(orden)} bloques sin rol conocido.")
     return {"ok": True, "plano": str(doc.Name), "unidad_m": unidad_m, "insunits": ins, "n_objetos": int(doc.ModelSpace.Count),
-            "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "muros": muros, "lineas": {"segmentos": lineas, "truncado": trunc_lineas, "entidades_leidas": leidas_cont}, "contenedores_leidos": len(contenedores),
+            "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "muros": muros, "lineas": {"segmentos": lineas, "truncado": trunc_lineas, "entidades_leidas": leidas_cont},
+            "lectura": {"contenedores_completos": cont_completos, "contenedores_incompletos": cont_incompletos}, "contenedores_leidos": len(contenedores),
             "elementos_en_contenedores": dentro, "avisos": avisos, "tiempo_lectura_s": round(time.time() - t0, 2)}
 
 

@@ -183,3 +183,62 @@ def test_un_plano_de_pdf_con_muros_largos_reconstruye_habitaciones_aunque_la_med
     ruido = [(x * 0.01, 9.0, x * 0.01 + 0.015, 9.0) for x in range(3000)]
     r = zonas_motor.construir_zonas(raw_lineas(con_capa(muros_ + ruido, "PDF_Geometria")), VOCAB)
     assert r["total"] == 3 and r["medidas_plano"]["muros"]["como_se_eligieron"] == "geometria"
+
+
+# ------------------------------------------------------------------------------------------------ lectura progresiva: cache de contenedores
+class _Doc:
+    Name = "Plano.dwg"
+
+
+class _Ref:
+    Handle = "2A"
+
+
+class _Defn:
+    Count = 5854
+
+
+def test_la_cache_del_contenedor_depende_del_dibujo_la_instancia_y_el_numero_de_entidades(tmp_path):
+    sz = _sz()
+    a = sz._ruta_cache_contenedor(tmp_path, _Doc(), _Ref(), _Defn())
+
+    class OtraCuenta(_Defn):
+        Count = 5855
+
+    class OtraRef(_Ref):
+        Handle = "2B"
+    assert a != sz._ruta_cache_contenedor(tmp_path, _Doc(), _Ref(), OtraCuenta())
+    assert a != sz._ruta_cache_contenedor(tmp_path, _Doc(), OtraRef(), _Defn())
+    assert a == sz._ruta_cache_contenedor(tmp_path, _Doc(), _Ref(), _Defn())
+    assert sz._ruta_cache_contenedor(None, _Doc(), _Ref(), _Defn()) is None
+
+
+def test_guardar_y_cargar_la_cache_es_atomico_y_tolera_archivos_danados(tmp_path):
+    sz = _sz()
+    ruta = tmp_path / "sub" / "cont_x.json"
+    sz._guardar_cache_contenedor(ruta, {"leidas": 120, "completo": False, "lineas": [[0, 0, 1, 1, "A"]]})
+    assert sz._cargar_cache_contenedor(ruta)["leidas"] == 120 and not list(ruta.parent.glob("*.tmp"))
+    ruta.write_text("{roto", encoding="utf-8")
+    assert sz._cargar_cache_contenedor(ruta) is None
+    assert sz._cargar_cache_contenedor(tmp_path / "no_existe.json") is None
+    sz._guardar_cache_contenedor(None, {"x": 1})                       # sin carpeta de cache: no hace nada ni falla
+
+
+def test_una_lectura_incompleta_le_dice_a_claude_que_repita_hasta_completar(monkeypatch):
+    import server
+    raw = {"ok": True, "plano": "P.dwg", "unidad_m": 1.0, "textos": [], "poligonos": [], "bloques": [], "avisos": [], "tiempo_lectura_s": 40.0,
+           "lectura": {"contenedores_completos": 0, "contenedores_incompletos": 1}}
+    monkeypatch.setattr(server.acad, "estado", lambda timeout_s=10: {"ok": True, "dibujo_activo": "P.dwg", "objetos_en_modelo": 30})
+    monkeypatch.setattr(server.acad, "plano_crudo", lambda **k: raw)
+    r = server._zonas_del_plano(True)
+    assert r["lectura_incompleta"] is True
+
+
+def test_el_siguiente_paso_pide_repetir_el_escaneo_si_la_lectura_quedo_a_medias(monkeypatch):
+    import server
+    raw = {"ok": True, "plano": "P.dwg", "unidad_m": 1.0, "textos": [], "poligonos": [], "bloques": [], "avisos": [], "tiempo_lectura_s": 40.0,
+           "lectura": {"contenedores_completos": 0, "contenedores_incompletos": 1}}
+    monkeypatch.setattr(server.acad, "estado", lambda timeout_s=10: {"ok": True, "dibujo_activo": "P.dwg", "objetos_en_modelo": 30})
+    monkeypatch.setattr(server.acad, "plano_crudo", lambda **k: raw)
+    r = server.escanear_zonas(forzar_recarga=True)
+    assert "forzar_recarga=True" in r["siguiente_paso"] and "INCOMPLETA" in r["siguiente_paso"]
