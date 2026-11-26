@@ -137,6 +137,29 @@ class Diario:
             d["resultado"] = resultado
         self._escribir(op_id, d)
 
+    def eliminar(self, op_id: str) -> None:
+        """Borra el archivo de una operacion (p. ej. una que fallo ANTES de tocar el dibujo: no hay nada que reconciliar)."""
+        try:
+            self._ruta(op_id).unlink()
+        except OSError:
+            pass
+
+    def limpiar(self, max_dias: int = 30) -> int:
+        """Borra las operaciones YA CERRADAS (aplicada/parcial/fallida) con mas de `max_dias` dias. Nunca toca las pendientes o inciertas."""
+        borradas, limite = 0, time.time() - max_dias * 86400
+        try:
+            for f in self.carpeta.glob("op_*.json"):
+                try:
+                    d = json.loads(f.read_text(encoding="utf-8"))
+                    if d.get("estado") in ("aplicada", "parcial", "fallida") and f.stat().st_mtime < limite:
+                        f.unlink()
+                        borradas += 1
+                except (OSError, ValueError):
+                    pass
+        except OSError:
+            pass
+        return borradas
+
     def pendientes(self, doc: str) -> list[dict]:
         """Operaciones de ese documento que quedaron sin cerrar o con resultado incierto: hay que reconciliarlas antes de reintentar."""
         res = []

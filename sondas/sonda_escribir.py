@@ -84,6 +84,18 @@ def codigo_dibujo(doc) -> str:
     return hashlib.sha1(clave.casefold().encode("utf-8")).hexdigest()[:4].upper()
 
 
+def normalizar_codigo(dado, esperado: str) -> str:
+    """El codigo llega de un asistente que puede enviarlo como NUMERO (3457), con comillas, con espacios, en minusculas o como 3457.0, y un numero pierde
+    los ceros iniciales (0457 -> 457). Se normaliza todo eso: la seguridad esta en que el codigo solo se ve en AutoCAD, no en como se escribe."""
+    import re
+    t = str(dado if dado is not None else "").strip().strip("\"'`").strip().upper()
+    if re.fullmatch(r"\d+\.0+", t):
+        t = t.split(".")[0]
+    if t.isdigit() and esperado.isdigit():
+        t = t.zfill(len(esperado))
+    return t
+
+
 def candado(doc, args, total, ejecutar):
     """Candado de dibujos grandes (planos reales). None = puede seguir; si no, el dict de error.
 
@@ -97,7 +109,7 @@ def candado(doc, args, total, ejecutar):
         doc.Utility.Prompt(f"\ndiseno-mcp: codigo de confirmacion para escribir en ESTE dibujo: {codigo}\n")
     except Exception:
         pass
-    if not ejecutar or str(args.get("confirmacion") or "").strip().upper() == codigo:
+    if not ejecutar or normalizar_codigo(args.get("confirmacion"), codigo) == codigo:
         return None
     return {"ok": False, "error": "dibujo_grande_requiere_confirmacion", "objetos_en_modelo": total,
             "detalle": f"El dibujo activo tiene {total} objetos (plano grande). No se escribio nada. Para escribir, la persona "

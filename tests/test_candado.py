@@ -1,6 +1,8 @@
 """Candado de planos grandes + importar la biblioteca completa + insertar_bloques."""
 import math
 
+import pytest
+
 import sonda_escribir as pe
 import sonda_simbolos as ps
 import server
@@ -450,3 +452,34 @@ def test_importar_biblioteca_tool_resume(monkeypatch):
     assert llamadas[0]["nombres"] is None and llamadas[0]["como_esta"] is True and llamadas[0]["origen_contiene"] == "bloques_schaller_corregido"
     assert r["resumen"] == {"total": 3, "se_importarian_o_importados": 1, "ya_existian": 1, "fallaron": 1}
     assert "ENSAYO" in r["aviso"] and list(r["fallos"]) == ["C"]
+
+
+# ------------------------------------------------------------------------------------------------ el codigo llega de un asistente: en cualquier formato
+@pytest.mark.parametrize("dado,esperado,ok", [
+    ("3457", "3457", True), (3457, "3457", True), ('"3457"', "3457", True), (" 3457 ", "3457", True), ("3457.0", "3457", True), (3457.0, "3457", True),
+    ("a3f9", "A3F9", True), ("A3F9", "A3F9", True), ("`A3F9`", "A3F9", True),
+    (457, "0457", True), ("457", "0457", True),                      # un numero pierde el cero inicial
+    ("3458", "3457", False), ("", "3457", False), (None, "3457", False), ("3457 a", "3457", False), (45, "3457", False),
+])
+def test_el_codigo_se_acepta_en_cualquier_formato_razonable(dado, esperado, ok):
+    assert (pe.normalizar_codigo(dado, esperado) == esperado) is ok
+
+
+def test_la_herramienta_acepta_el_codigo_como_numero_sin_error_de_tipo(monkeypatch):
+    """Claude Desktop envia '3457' como numero JSON: antes daba ToolError (el esquema pedia texto)."""
+    import asyncio
+    capturado = []
+    monkeypatch.setattr(server.acad, "diseno", lambda args, **kw: (capturado.append(args) or
+                                                                    ({"ok": True, "plano": "P", "hosts": [{"nombre": "X", "error": "anfitrion_no_encontrado", "detalle": "x"}], "muros": [],
+                                                                      "existentes": []} if args["op"] == "contexto_varios" else {"ok": True})))
+    r = asyncio.run(server.mcp.call_tool("ubicar_varios", {"items": [{"receta": "cama", "anfitrion": "X"}], "confirmacion": 3457}))
+    assert r is not None                                              # no lanza ToolError por el tipo
+
+
+def test_ninguna_herramienta_exige_que_la_confirmacion_sea_solo_texto():
+    import asyncio
+    for t in asyncio.run(server.mcp.list_tools()):
+        props = (t.inputSchema or {}).get("properties", {})
+        if "confirmacion" in props:
+            tipos = {x.get("type") for x in props["confirmacion"].get("anyOf", [props["confirmacion"]])}
+            assert {"string", "integer"} <= tipos, t.name

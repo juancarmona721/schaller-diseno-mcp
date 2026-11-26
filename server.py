@@ -240,7 +240,7 @@ def nombre_capa(prefijo: str, sistema) -> str:
 
 @mcp.tool()
 def crear_bloque_producto(referencia: str, fila_excel: int | None = None, tamano: float = 100.0,
-                          ejecutar: bool = False, confirmacion: str | None = None) -> dict:
+                          ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
     """MODIFICA EL DIBUJO (solo agrega): crea la definicion de bloque PROVISIONAL de un producto.
 
     Usa el nombre de la columna 'Bloque en CAD' de la hoja. El simbolo es un circulo con el nombre del bloque
@@ -266,7 +266,7 @@ def crear_bloque_producto(referencia: str, fila_excel: int | None = None, tamano
 
 @mcp.tool()
 def insertar_producto(referencia: str, puntos: list[list[float]], rotacion_grados: float = 0.0,
-                      fila_excel: int | None = None, ejecutar: bool = False, confirmacion: str | None = None) -> dict:
+                      fila_excel: int | None = None, ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
     """MODIFICA EL DIBUJO (solo agrega): inserta copias del bloque de un producto en los puntos [[x, y], ...].
 
     Coordenadas en unidades del dibujo. Las copias van en la capa DL-TEST-<SISTEMA> (se crea si no existe).
@@ -299,7 +299,7 @@ def insertar_producto(referencia: str, puntos: list[list[float]], rotacion_grado
 
 
 @mcp.tool()
-def insertar_productos(items: list[dict], ejecutar: bool = False, confirmacion: str | None = None) -> dict:
+def insertar_productos(items: list[dict], ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
     """MODIFICA EL DIBUJO (solo agrega): inserta VARIOS productos de una vez.
 
     items: lista de {"referencia": "...", "x": n, "y": n, "rotacion_grados": 0 (opcional), "fila_excel": n (solo si la
@@ -349,7 +349,7 @@ def insertar_productos(items: list[dict], ejecutar: bool = False, confirmacion: 
 
 
 @mcp.tool()
-def insertar_bloques(items: list[dict], ejecutar: bool = False, confirmacion: str | None = None) -> dict:
+def insertar_bloques(items: list[dict], ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
     """MODIFICA EL DIBUJO (solo agrega): inserta bloques de la BIBLIOTECA por su nombre (no usa la hoja de Excel).
 
     items: [{"bloque": "<nombre exacto, ej. 'Mira R_Davide Groppi'>", "x": n, "y": n, "rotacion_grados": 0 (opcional),
@@ -398,7 +398,7 @@ def insertar_bloques(items: list[dict], ejecutar: bool = False, confirmacion: st
 @mcp.tool()
 def importar_simbolos(origen_contiene: str, destino_contiene: str | None = None,
                       referencias: list[str] | None = None, ejecutar: bool = False,
-                      confirmacion: str | None = None) -> dict:
+                      confirmacion: str | int | None = None) -> dict:
     """MODIFICA EL DIBUJO DESTINO (solo agrega): copia los SIMBOLOS reales (definiciones de bloque) de un plano abierto.
 
     origen_contiene: fragmento del nombre del plano ORIGEN (solo se lee su geometria; debe coincidir con 1 documento abierto).
@@ -449,7 +449,7 @@ def importar_simbolos(origen_contiene: str, destino_contiene: str | None = None,
 
 @mcp.tool()
 def dibujar_espacios(espacios: list[dict], altura_texto: float = 200.0, ejecutar: bool = False,
-                     confirmacion: str | None = None) -> dict:
+                     confirmacion: str | int | None = None) -> dict:
     """MODIFICA EL DIBUJO (solo agrega): dibuja espacios como rectangulos (muros esquematicos) con su nombre en el centro.
 
     espacios: [{"nombre": "Sala", "x0": n, "y0": n, "x1": n, "y1": n}] (esquinas opuestas, en unidades del dibujo; x1>x0, y1>y0).
@@ -822,6 +822,7 @@ def _insertar_con_operacion(t: dict, nombre_plano: str, colocaciones: list, exis
     if not ejecutar:
         return acad.diseno(args, **t), None
     op_id, d = operaciones.nuevo_operation_id(), _diario()
+    d.limpiar()                                                # operaciones cerradas de hace mas de 30 dias
     try:
         d.iniciar(op_id, operaciones.doc_id(nombre_plano), operaciones.plan_hash(colocaciones), colocaciones,
                   previos=[e["handle"] for e in existentes if e.get("handle")])
@@ -834,7 +835,8 @@ def _insertar_con_operacion(t: dict, nombre_plano: str, colocaciones: list, exis
             info = r.get("operacion") or {}
             d.finalizar(op_id, "aplicada", {"insertados": r.get("insertados"), "piezas_marcadas": info.get("piezas_marcadas"), "fallos_xdata": info.get("fallos_xdata")})
         elif r.get("error") in _ERRORES_SIN_ESCRITURA:
-            d.finalizar(op_id, "fallida", {"error": r.get("error")})
+            d.eliminar(op_id)                                  # no se toco el dibujo: nada que reconciliar ni que dejar de rastro
+            op_id = None
         else:
             d.finalizar(op_id, "incierta", {"error": r.get("error")})
     except OSError:
@@ -844,7 +846,7 @@ def _insertar_con_operacion(t: dict, nombre_plano: str, colocaciones: list, exis
 
 @mcp.tool()
 @_serializado
-def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str | None = None) -> dict:
+def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
     """UBICA TODO UN DISENO EN UNA SOLA LLAMADA (rapido): varias ubicaciones sobre varios anfitriones, leyendo el plano UNA vez.
 
     items = [{"receta": ..., "anfitrion": "<bloque>", "opciones": {...}?, "cerca_de": [x, y]?}, ...]; mismas recetas y opciones que
@@ -967,7 +969,7 @@ def ver_uso(ultimos: int = 40) -> dict:
 
 @mcp.tool()
 @_serializado
-def quitar_colocaciones(ejecutar: bool = False, confirmacion: str | None = None) -> dict:
+def quitar_colocaciones(ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
     """BORRA lo que este MCP coloco: SOLO las entidades de las capas SCH_ILUMINACION y SCH_AUDIO (luminarias, parlantes, tiras, rotulos).
     Nunca toca otras capas (mobiliario, arquitectura, vegetacion) ni borra las capas. Sirve para repetir pruebas.
 
@@ -1009,7 +1011,7 @@ def _diseno_tiempos() -> dict:
 @_serializado
 def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccion: bool = False,
                         cerca_de: list[float] | None = None, opciones: dict | None = None,
-                        ejecutar: bool = False, confirmacion: str | None = None) -> dict:
+                        ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
     """UBICA PRODUCTOS SEGUN LA GEOMETRIA REAL DE UN MUEBLE (no coordenadas fijas). Ensayo por defecto; solo AGREGA.
 
     Calcula las posiciones desde el bbox del anfitrion y, cuando hay muros, con RAYOS a muros (primer muro, sin saltar de
@@ -1073,7 +1075,7 @@ def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccio
 
 @mcp.tool()
 def dibujar_textos(textos: list[dict], altura: float = 0.15, ejecutar: bool = False,
-                   confirmacion: str | None = None) -> dict:
+                   confirmacion: str | int | None = None) -> dict:
     """MODIFICA EL DIBUJO (solo agrega): escribe rotulos de texto (por ejemplo el nombre de cada producto al lado de su bloque).
 
     textos: [{"bloque": "<nombre de bloque>" o "texto": "<texto libre>", "x": n, "y": n, "rotacion_grados": 0 (opcional),
@@ -1109,7 +1111,7 @@ def dibujar_textos(textos: list[dict], altura: float = 0.15, ejecutar: bool = Fa
 
 
 @mcp.tool()
-def dibujar_flechas(flechas: list[dict], ejecutar: bool = False, confirmacion: str | None = None) -> dict:
+def dibujar_flechas(flechas: list[dict], ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
     """MODIFICA EL DIBUJO (solo agrega): dibuja flechas (linea + punta) para indicar hacia donde apunta un producto.
 
     flechas: [{"x": n, "y": n, "angulo_grados": n, "largo": n}]; angulo 0 = derecha (+X), 90 = arriba, 180 = izquierda, 270 = abajo.
@@ -1165,7 +1167,7 @@ def comparar_biblioteca(destino_contiene: str | None = None, origen_contiene: st
 
 @mcp.tool()
 def importar_biblioteca(destino_contiene: str | None = None, origen_contiene: str = "bloques_schaller_corregido",
-                        ejecutar: bool = False, confirmacion: str | None = None, solo_con_ficha: bool = True) -> dict:
+                        ejecutar: bool = False, confirmacion: str | int | None = None, solo_con_ficha: bool = True) -> dict:
     """MODIFICA EL DIBUJO DESTINO (solo agrega): copia los bloques de PRODUCTO de la biblioteca (bloques_schaller_corregido) a un plano.
 
     Por defecto solo los que tienen ficha (estan colocados en el modelo de la biblioteca) y sus sub-bloques internos; asi no se

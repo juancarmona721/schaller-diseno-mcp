@@ -65,10 +65,25 @@ def test_una_pieza_marcada_pero_con_otro_producto_se_reporta_como_cambiada_y_no_
     assert r["items"][0]["cambiadas"][0]["bloque_existente"] == "OTRO"
 
 
-def test_un_fallo_antes_de_escribir_deja_la_operacion_fallida(monkeypatch):
+def test_un_fallo_antes_de_escribir_no_deja_rastro_en_el_diario(monkeypatch):
     _montar(monkeypatch, insertar=lambda a: {"ok": False, "error": "dibujo_grande_requiere_confirmacion"})
     r = server.ubicar_varios([ITEM], ejecutar=True)
-    assert not r["ok"] and _estado(r["operacion_id"]) == "fallida"
+    assert not r["ok"] and "operacion_id" not in r
+    assert not server.RUTA_OPERACIONES.exists() or list(server.RUTA_OPERACIONES.glob("op_*.json")) == []        # nada que reconciliar
+
+
+def test_el_diario_limpia_lo_cerrado_hace_mas_de_30_dias_y_conserva_lo_pendiente(tmp_path):
+    import os
+    import time
+    d = operaciones.Diario(tmp_path)
+    for op_id, estado in (("op_vieja_ok", "aplicada"), ("op_vieja_incierta", "incierta"), ("op_nueva_ok", "aplicada")):
+        d.iniciar(op_id, "docA", "h", [])
+        d.finalizar(op_id, estado)
+    viejo = time.time() - 40 * 86400
+    for n in ("op_vieja_ok", "op_vieja_incierta"):
+        os.utime(tmp_path / f"{n}.json", (viejo, viejo))
+    assert d.limpiar(30) == 1
+    assert sorted(p.stem for p in tmp_path.glob("op_*.json")) == ["op_nueva_ok", "op_vieja_incierta"]
 
 
 def test_un_fallo_a_mitad_deja_la_operacion_incierta_y_la_siguiente_llamada_la_reconcilia(monkeypatch):

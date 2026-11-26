@@ -32,26 +32,20 @@ class _Union:
 
 
 def _union_cajas(cajas: list, hueco: float) -> list:
-    """Indice de grupo por caja. Cajas expandidas medio hueco que se solapan se unen; se usa una rejilla para no comparar todas contra todas."""
+    """Indice de grupo por caja. Dos cajas se unen si, expandidas medio hueco cada una, se solapan. Barrido ordenado por X con un conjunto activo:
+    cuesta del orden de n log n mas los pares realmente cercanos (no compara todas contra todas)."""
     uf = _Union(len(cajas))
-    mitad, celda = hueco / 2, max(hueco, 1e-6)
-    cubo: dict = {}
-    for i, (x0, y0, x1, y1) in enumerate(cajas):
-        for cx in range(int((x0 - mitad) // celda), int((x1 + mitad) // celda) + 1):
-            for cy in range(int((y0 - mitad) // celda), int((y1 + mitad) // celda) + 1):
-                cubo.setdefault((cx, cy), []).append(i)
-    for miembros in cubo.values():
-        # dentro de una celda solo se unen las cajas cuya expansion realmente se solapa
-        base = miembros[0]
-        for j in miembros[1:]:
-            a, b = cajas[base], cajas[j]
-            if a[0] - mitad <= b[2] + mitad and b[0] - mitad <= a[2] + mitad and a[1] - mitad <= b[3] + mitad and b[1] - mitad <= a[3] + mitad:
-                uf.unir(base, j)
-        for k in range(1, len(miembros)):
-            for j in miembros[k + 1:]:
-                a, b = cajas[miembros[k]], cajas[j]
-                if a[0] - mitad <= b[2] + mitad and b[0] - mitad <= a[2] + mitad and a[1] - mitad <= b[3] + mitad and b[1] - mitad <= a[3] + mitad:
-                    uf.unir(miembros[k], j)
+    mitad = hueco / 2
+    orden = sorted(range(len(cajas)), key=lambda i: cajas[i][0])
+    activos: list = []
+    for i in orden:
+        x0, y0, x1, y1 = cajas[i]
+        activos = [j for j in activos if cajas[j][2] + mitad >= x0 - mitad]        # los que ya terminaron a la izquierda salen
+        for j in activos:
+            b = cajas[j]
+            if y0 - mitad <= b[3] + mitad and b[1] - mitad <= y1 + mitad:
+                uf.unir(i, j)
+        activos.append(i)
     return [uf.hallar(i) for i in range(len(cajas))]
 
 
