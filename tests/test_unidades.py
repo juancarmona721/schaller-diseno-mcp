@@ -120,3 +120,28 @@ def test_la_tolerancia_de_duplicados_va_en_unidades_del_dibujo():
     assert nuevas == [] and len(ya) == 1
     lejos = [{"bloque": "A", "x": 1500.0, "y": 2000.0}]                           # a 50 cm
     assert len(op.sin_duplicados_logico(plan, lejos, tol=0.30 / 0.001, u=0.001)[0]) == 1
+
+
+# ------------------------------------------------------------------------------------------------ caso real: plano importado de PDF
+def test_miles_de_trazos_finos_no_enganan_a_la_deteccion():
+    """Un plano declarado en mm y dibujado en metros, con la arquitectura hecha de muchos trazos de unos centimetros (importado de PDF)."""
+    trazos = [0.02 + (i % 40) * 0.03 for i in range(120)]            # 2 cm a 1.2 m (mediana ~0.07 en el caso real)
+    trazos += [0.001] * 5
+    u, aviso = unidades.unidad_efectiva(0.001, trazos + [0.6, 0.17, 0.12, 19.57])
+    assert u == 1.0 and "se asume metros" in aviso
+
+
+def test_la_estimacion_real_del_plano_importado_de_pdf():
+    # distribucion medida en un plano real: min 0.001, p10 0.022, mediana 0.071, p90 1.199, max 19.57
+    dims = [0.001] * 6 + [0.022] * 12 + [0.045] * 25 + [0.071] * 25 + [0.15] * 25 + [0.5] * 20 + [1.199] * 12 + [3.0] * 3 + [19.57]
+    assert unidades.unidad_efectiva(0.001, dims)[0] == 1.0
+
+
+def test_un_dibujo_en_mm_con_detalles_pequenos_conserva_mm():
+    dims = [5.0] * 20 + [50.0] * 30 + [800.0] * 30 + [2000.0] * 15 + [3600.0] * 5             # trazos de 5 mm, mobiliario de 0.8 a 3.6 m
+    assert unidades.unidad_efectiva(0.001, dims) == (0.001, None)
+
+
+def test_si_podria_ser_mm_o_cm_no_se_adivina():
+    u, aviso = unidades.unidad_efectiva(1.0, [300.0, 500.0, 800.0, 1200.0, 600.0, 400.0])      # declarado m: 300 m es imposible; mm (0.3-1.2 m) o cm (3-12 m)
+    assert (u == 0.001 and "se asume milimetros" in aviso) or (u == 1.0 and "podrian ser" in aviso)
