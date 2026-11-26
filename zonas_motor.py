@@ -14,6 +14,7 @@ from pathlib import Path
 
 import clasificador
 import plantas
+import unidades
 
 AQUI = Path(__file__).resolve().parent
 RUTA_VOCABULARIO = AQUI / "vocabulario_espacios.json"
@@ -161,7 +162,7 @@ VERSION_MOTOR = 3                # esquema del resultado; ademas la version incl
 def version_motor(ruta_vocabulario=None) -> str:
     """Cambia sola si cambia el CODIGO de este modulo o el vocabulario editable: las caches viejas dejan de valer."""
     h = hashlib.sha1()
-    for ruta in (Path(ruta_vocabulario or RUTA_VOCABULARIO), Path(__file__), Path(clasificador.__file__), clasificador.RUTA):
+    for ruta in (Path(ruta_vocabulario or RUTA_VOCABULARIO), Path(__file__), Path(clasificador.__file__), clasificador.RUTA, Path(unidades.__file__), Path(plantas.__file__)):
         try:
             h.update(ruta.read_bytes())
         except OSError:
@@ -258,7 +259,15 @@ def _detalle(h: dict, perfil: dict) -> dict:
 def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, tipologia: str | None = None) -> dict:
     """raw = {"unidad_m", "textos": [{t,x,y,capa}], "poligonos": [{capa,pts}], "bloques": [{n,capa,x0,y0,x1,y1}]}."""
     perfil = {**perfil_vacio(), **(perfil or {})}
-    u = float(raw.get("unidad_m") or 1.0)
+    u_declarada = float(raw.get("unidad_m") or 1.0)
+    # La unidad declarada (INSUNITS) puede no ser la real: se contrasta con el tamano de lo dibujado (bloques y poligonos) y, si no cuadra, se corrige.
+    dims = [max(b["x1"] - b["x0"], b["y1"] - b["y0"]) for b in raw.get("bloques", [])]
+    for pol in raw.get("poligonos", []):
+        pts = pol.get("pts") or []
+        if len(pts) >= 3:
+            xs, ys = [q[0] for q in pts], [q[1] for q in pts]
+            dims.append(max(max(xs) - min(xs), max(ys) - min(ys)))
+    u, aviso_unidades = unidades.unidad_efectiva(u_declarada, dims)
     radio = RADIO_ASOCIAR_M / u
     zonas = []
 
@@ -447,7 +456,7 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
         h.pop("_cl", None)
     return {"zonas": zonas, "total": len(zonas), "tipologia": elegida, "tipologia_detectada": detectada, "tipologia_pesos": dict(orden),
             "bloques_ignorados": ignorados, "bloques_con_rol": len(hosts), "bloques_sin_rol": len(sin_rol),
-            "sugerencias_roles": sugerencias, "unidad_m": u, "vistas": vistas,
+            "sugerencias_roles": sugerencias, "unidad_m": u, "unidad_declarada_m": u_declarada, "aviso_unidades": aviso_unidades, "vistas": vistas,
             "resumen_lectura": {"textos": len(raw.get("textos", [])), "textos_con_nombre_de_espacio": n_reconocidos,
                                 "poligonos": len(raw.get("poligonos", [])), "poligonos_con_area_de_recinto": len(polis), "recintos_candidatos": len([z for z in zonas if z.get("candidato")]),
                                 "bloques": len(raw.get("bloques", [])), "bloques_con_rol": len(hosts), "bloques_sin_rol": len(sin_rol)}}

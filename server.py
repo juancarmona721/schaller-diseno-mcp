@@ -539,7 +539,7 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
            "leido": {"textos": len(raw["textos"]), "poligonos": len(raw["poligonos"]), "bloques": len(raw["bloques"]),
                       "definiciones": len(raw.get("definiciones") or {}),
                      "elementos_en_contenedores": raw.get("elementos_en_contenedores", 0)},
-           "avisos": raw.get("avisos", []), **res}
+           "avisos": raw.get("avisos", []) + ([res["aviso_unidades"]] if res.get("aviso_unidades") else []), **res}
     try:
         CARPETA_CACHE.mkdir(exist_ok=True)
         ruta.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
@@ -799,13 +799,13 @@ def _diario() -> operaciones.Diario:
     return operaciones.Diario(RUTA_OPERACIONES)
 
 
-def _reconciliar_previas(nombre_plano: str, existentes: list) -> list[dict]:
+def _reconciliar_previas(nombre_plano: str, existentes: list, u: float = 1.0) -> list[dict]:
     """Cierra las operaciones que quedaron pendientes o inciertas en este documento, mirando lo que hay realmente en el dibujo (marcas XData)."""
     d, doc, salida = _diario(), operaciones.doc_id(nombre_plano), []
     for pend in d.pendientes(doc):
         marcados = [{"item_id": e["item_id"], "handle": e.get("handle")} for e in existentes if e.get("op_id") == pend["op_id"]]
         sin_marca = [e for e in existentes if not e.get("item_id") and e.get("handle")]
-        r = operaciones.reconciliar(pend.get("items", []), marcados, sin_marca, pend.get("previos", []))
+        r = operaciones.reconciliar(pend.get("items", []), marcados, sin_marca, pend.get("previos", []), tol=operaciones.TOL_ADOPCION / (u or 1.0))
         d.finalizar(pend["op_id"], r["estado"], {k: r[k] for k in ("aplicados", "adoptables", "ambiguas", "pendientes")})
         mal_capa = sum(1 for e in existentes if e.get("op_id") == pend["op_id"] and e.get("capa_incorrecta"))
         salida.append({"op_id": pend["op_id"], "estado": r["estado"], "aplicadas": r["aplicados"], "faltan": len(r["pendientes"]),
@@ -814,10 +814,11 @@ def _reconciliar_previas(nombre_plano: str, existentes: list) -> list[dict]:
     return salida
 
 
-def _insertar_con_operacion(t: dict, nombre_plano: str, colocaciones: list, existentes: list, ejecutar: bool, confirmacion) -> tuple[dict, str | None]:
+def _insertar_con_operacion(t: dict, nombre_plano: str, colocaciones: list, existentes: list, ejecutar: bool, confirmacion, unidad_m: float = 1.0) -> tuple[dict, str | None]:
     """Inserta dejando constancia: diario con la INTENCION antes de tocar el dibujo, XData en cada entidad y cierre con su estado real.
     Ensayo: sin diario. Si no se puede abrir el diario, NO se escribe (la trazabilidad es obligatoria en las escrituras)."""
-    args = {"op": "insertar", "colocaciones": colocaciones, "ejecutar": bool(ejecutar), "confirmacion": confirmacion, "max_objetos": _max_objetos()}
+    args = {"op": "insertar", "colocaciones": colocaciones, "ejecutar": bool(ejecutar), "confirmacion": confirmacion, "max_objetos": _max_objetos(),
+            "unidad_m": unidad_m}
     if not ejecutar:
         return acad.diseno(args, **t), None
     op_id, d = operaciones.nuevo_operation_id(), _diario()
@@ -868,8 +869,9 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
     perfil = zonas_motor.cargar_perfil(CARPETA_PERFILES, ctx["plano"]) if ctx.get("plano") else zonas_motor.perfil_vacio()
     muros = [tuple(m) for m in ctx.get("muros", [])]
     existentes = list(ctx.get("existentes", []))
+    u = float(ctx.get("unidad_m") or 1.0)                 # metros por unidad del dibujo (declarada o corregida por el tamano de lo dibujado)
     existentes_dibujo = list(existentes)                  # lo que habia en el dibujo (sin lo que sumen los items de este lote)
-    previas = _reconciliar_previas(ctx.get("plano") or "", existentes_dibujo) if ejecutar else []
+    previas = _reconciliar_previas(ctx.get("plano") or "", existentes_dibujo, u) if ejecutar else []
     if any(x["ambiguas"] for x in previas):
         return {"ok": False, "error": "operacion_previa_ambigua", "operaciones_previas": previas,
                 "detalle": "Una operacion anterior quedo a medias y hay piezas sin marca que no se pueden atribuir con seguridad. "
@@ -886,12 +888,12 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
         host = h["host"]
         guardado = {k: v for k, v in zonas_motor.atributos_de(perfil, host["nombre"]).items() if k in motor_ubicacion.OPCIONES_DEL_PERFIL}
         try:
-            plan, avisos = motor_ubicacion.planear(it["receta"], host, motor_ubicacion.combinar_opciones(guardado, it.get("opciones")), muros=muros)
+            plan, avisos = motor_ubicacion.planear_en_unidades(it["receta"], host, motor_ubicacion.combinar_opciones(guardado, it.get("opciones")), muros, u)
         except motor_ubicacion.ErrorUbicacion as e:
             detalle.append({**r, "estado": "omitido", "error": "no_se_puede_ubicar", "detalle": str(e)})
             continue
         plan = operaciones.asignar_ids(plan, it.get("diseno_id") or DISENO_ID_PREDETERMINADO, host.get("handle") or host["nombre"], it["receta"])
-        nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes)
+        nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes, tol=motor_ubicacion.TOL_DUPLICADO / u, u=u)
         existentes += [{"bloque": c["bloque"], "x": c["x"], "y": c["y"], "item_id": c["item_id"]} for c in nuevas]      # tambien contra lo del propio lote
         todas += nuevas
         detalle.append({**r, "estado": "ok", "a_colocar": len(nuevas), "ya_colocadas": len(omitidas), "avisos": avisos or None,
@@ -908,8 +910,10 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
         return {**resumen, "aviso": "No hay nada nuevo que colocar (todo ya estaba puesto o se omitio).", **({"operaciones_previas": previas} if previas else {})}
     if len(todas) > 400:
         return {**resumen, "ok": False, "error": "demasiados_objetos", "detalle": "Mas de 400 piezas en una llamada: divide el lote."}
-    r, op_id = _insertar_con_operacion(t, ctx.get("plano") or "", todas, existentes_dibujo, ejecutar, confirmacion)
+    r, op_id = _insertar_con_operacion(t, ctx.get("plano") or "", todas, existentes_dibujo, ejecutar, confirmacion, u)
     extra = {}
+    if ctx.get("aviso_unidades"):
+        extra["aviso_unidades"] = ctx["aviso_unidades"]
     if previas:
         extra["operaciones_previas"] = previas
     if not r.get("ok"):
@@ -1032,22 +1036,23 @@ def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccio
     if not ctx.get("ok"):
         return ctx
     host = ctx["anfitrion"]
+    u = float(ctx.get("unidad_m") or 1.0)
     guardado = {}
     if ctx.get("plano"):
         guardado = zonas_motor.atributos_de(zonas_motor.cargar_perfil(CARPETA_PERFILES, ctx["plano"]), host["nombre"])
     opciones = motor_ubicacion.combinar_opciones({k: v for k, v in guardado.items() if k in motor_ubicacion.OPCIONES_DEL_PERFIL}, opciones)   # lo explicito manda
     try:
-        plan, avisos = motor_ubicacion.planear(receta, host, opciones, muros=[tuple(m) for m in ctx.get("muros", [])])
+        plan, avisos = motor_ubicacion.planear_en_unidades(receta, host, opciones, [tuple(m) for m in ctx.get("muros", [])], u)
     except motor_ubicacion.ErrorUbicacion as e:
         return {"ok": False, "error": "no_se_puede_ubicar", "detalle": str(e),
                 "anfitrion": {k: host[k] for k in ("nombre", "x0", "y0", "x1", "y1", "w", "h")}, "muros_cercanos": ctx.get("n_muros", 0)}
     plan = operaciones.asignar_ids(plan, DISENO_ID_PREDETERMINADO, host.get("handle") or host["nombre"], receta)
     existentes_dibujo = list(ctx.get("existentes", []))
-    previas = _reconciliar_previas(ctx.get("plano") or "", existentes_dibujo) if ejecutar else []
+    previas = _reconciliar_previas(ctx.get("plano") or "", existentes_dibujo, u) if ejecutar else []
     if any(x["ambiguas"] for x in previas):
         return {"ok": False, "error": "operacion_previa_ambigua", "operaciones_previas": previas,
                 "detalle": "Una operacion anterior quedo a medias y hay piezas sin marca que no se pueden atribuir con seguridad. No se escribio nada."}
-    nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes_dibujo)
+    nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes_dibujo, tol=motor_ubicacion.TOL_DUPLICADO / u, u=u)
     resumen = {"ok": True, "receta": receta, "anfitrion": {k: host[k] for k in ("nombre", "x0", "y0", "x1", "y1", "w", "h")},
                "muros_cercanos": ctx.get("n_muros", 0), "a_colocar": len(nuevas), "ya_colocadas_omitidas": len(omitidas),
                "opciones_del_perfil": {k: v for k, v in guardado.items() if k in motor_ubicacion.OPCIONES_DEL_PERFIL} or None,
@@ -1056,7 +1061,9 @@ def ubicar_en_anfitrion(receta: str, anfitrion: str | None = None, usar_seleccio
         return {**resumen, "aviso": "Todo lo de esta receta ya esta colocado: no se hizo nada."}
     if len(nuevas) > int(_escritura().get("max_puntos", 100)):
         return {**resumen, "ok": False, "error": "demasiados_objetos"}
-    r, op_id = _insertar_con_operacion(t, ctx.get("plano") or "", nuevas, existentes_dibujo, ejecutar, confirmacion)
+    r, op_id = _insertar_con_operacion(t, ctx.get("plano") or "", nuevas, existentes_dibujo, ejecutar, confirmacion, u)
+    if ctx.get("aviso_unidades"):
+        resumen["aviso_unidades"] = ctx["aviso_unidades"]
     if not r.get("ok"):
         return {**resumen, **r, "ok": False, **({"operacion_id": op_id} if op_id else {})}
     aviso = {} if ejecutar else {"aviso": "ENSAYO: no se modifico nada. Revisa las colocaciones y repite con ejecutar=True."}

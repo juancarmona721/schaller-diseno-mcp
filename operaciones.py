@@ -58,13 +58,14 @@ def asignar_ids(colocaciones: list, design_id: str, host_id: str, receta: str) -
     return salida
 
 
-def sin_duplicados_logico(plan: list, existentes: list, tol: float = 0.30) -> tuple[list, list, list]:
+def sin_duplicados_logico(plan: list, existentes: list, tol: float = 0.30, u: float = 1.0) -> tuple[list, list, list]:
     """Separa (nuevas, ya_colocadas, cambiadas).
 
     1. Misma identidad logica ya presente -> ya colocada. Si esta en otra posicion (> tol) o con otro producto, se reporta en `cambiadas`
        y NO se duplica ni se mueve (modificar una pieza existente se decide con confirmacion, no en silencio).
     2. Sin identidad (piezas antiguas sin marca): vale la proximidad (mismo bloque a <= tol), como hasta ahora.
     Una pieza CON marca de otra identidad NO bloquea por cercania: dos luminarias legitimas a 15 cm ya no se descartan.
+    `tol` va en UNIDADES DEL DIBUJO y `u` (metros por unidad) solo sirve para informar la distancia en metros.
     """
     por_id = {e["item_id"]: e for e in existentes if e.get("item_id")}
     sin_marca = [e for e in existentes if not e.get("item_id")]
@@ -77,7 +78,7 @@ def sin_duplicados_logico(plan: list, existentes: list, tol: float = 0.30) -> tu
             d = math.hypot(previo["x"] - c["x"], previo["y"] - c["y"])
             if d > tol or previo.get("bloque") != c["bloque"]:
                 cambiadas.append({"item_id": iid, "slot": c.get("slot"), "bloque_existente": previo.get("bloque"), "bloque_nuevo": c["bloque"],
-                                  "distancia_m": round(d, 3)})
+                                  "distancia_m": round(d * u, 3)})
             continue
         if any(e["bloque"] == c["bloque"] and math.hypot(e["x"] - c["x"], e["y"] - c["y"]) <= tol for e in sin_marca):
             ya.append(c)

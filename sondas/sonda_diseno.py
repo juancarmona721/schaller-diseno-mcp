@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 
 import motor_ubicacion  # noqa: E402
 import operaciones  # noqa: E402
+import unidades  # noqa: E402
 from metricas import llamada, etapa, resumen  # noqa: E402
 
 CAPAS_SCH = ("SCH_ILUMINACION", "SCH_AUDIO")
@@ -251,6 +252,24 @@ def _instancia(doc, e):
     return inst
 
 
+def _unidad_efectiva(doc, ents):
+    """(metros por unidad del dibujo, aviso|None): la declarada (INSUNITS) contrastada con el tamano de una muestra de bloques (24, repartidos).
+    Un dibujo declarado en mm pero dibujado en metros (o al reves) hace que TODO salga 1000 veces mal; aqui se detecta y se corrige."""
+    declarada, aviso0 = unidad_plano_m(doc)
+    dims = []
+    paso = max(1, len(ents) // 24)
+    for e in ents[::paso][:24]:
+        try:
+            if str(e.Layer) in CAPAS_SCH:
+                continue
+            a = _bbox(e)
+            dims.append(max(a[2] - a[0], a[3] - a[1]))
+        except Exception:
+            pass
+    u, aviso = unidades.unidad_efectiva(declarada, dims)
+    return u, (aviso or aviso0)
+
+
 def _inserts(doc):
     """Todos los INSERT del modelo (rapido, filtro nativo). Devuelve (conjunto, lista de entidades)."""
     ss = _conjunto(doc, "SS_DISENO_INS", 5, None, None, [0], ["INSERT"])
@@ -263,6 +282,7 @@ def op_anfitriones(doc, args):
     radio = float(args.get("radio") or 15.0)
     limite = int(args.get("limite") or 40)
     ss, ents = _inserts(doc)
+    u, aviso_u = _unidad_efectiva(doc, ents)
     res = []
     try:
         for e in ents:
@@ -274,18 +294,18 @@ def op_anfitriones(doc, args):
                 continue
             if filtro and filtro not in h["nombre"].lower() and filtro not in h["capa"].lower():
                 continue
-            if abs(h["x1"] - h["x0"]) > 500 or abs(h["y1"] - h["y0"]) > 500:
-                continue                                    # definiciones lejanas / basura
+            if abs(h["x1"] - h["x0"]) * u > 500 or abs(h["y1"] - h["y0"]) * u > 500:
+                continue                                    # definiciones lejanas / basura (mas de 500 m)
             if centro:
                 cx, cy = (h["x0"] + h["x1"]) / 2, (h["y0"] + h["y1"]) / 2
-                h["distancia"] = round(math.hypot(cx - centro[0], cy - centro[1]), 2)
+                h["distancia"] = round(math.hypot(cx - centro[0], cy - centro[1]) * u, 2)          # en metros
                 if h["distancia"] > radio:
                     continue
             res.append(h)
     finally:
         ss.Delete()
     res.sort(key=lambda h: h.get("distancia", 0))
-    return {"ok": True, "total": len(res), "anfitriones": res[:limite]}
+    return {"ok": True, "total": len(res), "anfitriones": res[:limite], "unidad_m": u, **({"aviso_unidades": aviso_u} if aviso_u else {})}
 
 
 def _resolver_anfitrion(doc, args):
@@ -355,7 +375,12 @@ def op_contexto(doc, args):
     inst = _instancia(doc, host_ent)
     if inst:
         host["instancia"] = inst
-    r = float(args.get("radio_muros") or 8.0)
+    ss0, ents0 = _inserts(doc)
+    try:
+        u, aviso_u = _unidad_efectiva(doc, ents0)
+    finally:
+        ss0.Delete()
+    r = float(args.get("radio_muros") or 8.0) / u                      # el radio se pide en metros
     muros = []
     # OJO: la seleccion por ventana de AutoCAD solo ve lo que esta en la VISTA ACTUAL (da 0 si el muro esta fuera de pantalla).
     # Por eso: seleccion global con filtro nativo de tipo+capa (rapida) y recorte por distancia aqui.
@@ -396,7 +421,7 @@ def op_contexto(doc, args):
     finally:
         ss.Delete()
     existentes += _marcadas_fuera_de_capas_propias(doc)
-    return {"ok": True, "plano": str(doc.Name), "anfitrion": host, "muros": muros[:MAX_SEGMENTOS], "n_muros": len(muros), "existentes": existentes,
+    return {"ok": True, "plano": str(doc.Name), "unidad_m": u, "aviso_unidades": aviso_u, "anfitrion": host, "muros": muros[:MAX_SEGMENTOS], "n_muros": len(muros), "existentes": existentes,
             "objetos_en_modelo": int(doc.ModelSpace.Count)}
 
 
@@ -411,6 +436,7 @@ def op_contexto_varios(doc, args):
     bbox_blk = set(args.get("bloques_bbox") or [])
     por_nombre, existentes = {}, []
     ss, ents = _inserts(doc)
+    u, aviso_u = _unidad_efectiva(doc, ents)
     try:
         for e in ents:
             try:
@@ -434,7 +460,7 @@ def op_contexto_varios(doc, args):
         ss.Delete()
 
     resultados, ventanas, cache = [], [], {}
-    r = float(args.get("radio_muros") or 8.0)
+    r = float(args.get("radio_muros") or 8.0) / u                      # el radio se pide en metros
     for ped in pedidos:
         nombre = (ped.get("nombre") or "").strip()
         centro = ped.get("cerca_de")
@@ -479,7 +505,7 @@ def op_contexto_varios(doc, args):
     finally:
         ss.Delete()
     existentes += _marcadas_fuera_de_capas_propias(doc)
-    return {"ok": True, "plano": str(doc.Name), "hosts": resultados, "muros": muros[:MAX_SEGMENTOS], "n_muros": len(muros),
+    return {"ok": True, "plano": str(doc.Name), "unidad_m": u, "aviso_unidades": aviso_u, "hosts": resultados, "muros": muros[:MAX_SEGMENTOS], "n_muros": len(muros),
             "existentes": existentes, "objetos_en_modelo": int(doc.ModelSpace.Count)}
 
 
@@ -577,7 +603,7 @@ def op_insertar(acad, doc, args):
             doc.Layers.Add(capa).color = color
     ms = doc.ModelSpace
     handles, avisos, desv_max = [], [], 0.0
-    unidad_m, aviso_u = unidad_plano_m(doc)
+    unidad_m, aviso_u = (float(args["unidad_m"]), None) if args.get("unidad_m") else unidad_plano_m(doc)
     if aviso_u:
         avisos.append(aviso_u)
     escalas = {}    # bloque -> (escala, como). La primera copia de cada bloque se inserta a 1 y se MIDE: lo que se ve es lo que cuenta.

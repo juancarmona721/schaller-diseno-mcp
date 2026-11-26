@@ -440,6 +440,45 @@ def _planear_en_marco_local(receta: str, host: dict, op: dict, muros, marco) -> 
     return salida, [f"Anfitrion calculado en su marco local (giro {grados:.1f} grados): las orientaciones N/S/E/O de la receta son las de su dibujo."] + avisos
 
 
+# ----------------------------------------------------------------------------------------------------------------- unidades del dibujo
+# Las recetas trabajan en METROS (margenes de 0.45 m, filas a 0.70 m...). Un dibujo en milimetros, centimetros o pulgadas se convierte en la frontera:
+# la entrada (anfitrion, muros, puntos) pasa a metros, se calcula y el resultado vuelve a las unidades del dibujo.
+def _host_a_metros(host: dict, u: float) -> dict:
+    h = dict(host)
+    for k in ("x0", "y0", "x1", "y1", "w", "h"):
+        if k in h and h[k] is not None:
+            h[k] = float(h[k]) * u
+    inst = h.get("instancia")
+    if inst:
+        inst = dict(inst)
+        inst["ins"] = [float(inst["ins"][0]) * u, float(inst["ins"][1]) * u]
+        if inst.get("caja_local"):
+            inst["caja_local"] = [float(v) * u for v in inst["caja_local"]]
+        h["instancia"] = inst
+    return h
+
+
+def planear_en_unidades(receta: str, host: dict, opciones: dict | None, muros, u: float = 1.0) -> tuple[list, list]:
+    """Como planear(), pero con el anfitrion, los muros y los puntos en las unidades del DIBUJO (u = metros por unidad) y el resultado en ellas."""
+    if not u or abs(u - 1.0) < 1e-12:
+        return planear(receta, host, opciones, muros=muros)
+    op = dict(opciones or {})
+    if op.get("puntos"):
+        op["puntos"] = [[float(p[0]) * u, float(p[1]) * u] for p in op["puntos"]]
+    if op.get("apuntar_a"):
+        op["apuntar_a"] = [float(op["apuntar_a"][0]) * u, float(op["apuntar_a"][1]) * u]
+    m = [tuple(float(v) * u for v in seg) for seg in (muros or [])]
+    plan, avisos = planear(receta, _host_a_metros(host, u), op, muros=m)
+    salida = []
+    for c in plan:
+        d = {**c, "x": round(c["x"] / u, 3), "y": round(c["y"] / u, 3)}
+        if c.get("etiqueta"):
+            e = c["etiqueta"]
+            d["etiqueta"] = {**e, "x": round(e["x"] / u, 3), "y": round(e["y"] / u, 3), "altura": e["altura"] / u}
+        salida.append(d)
+    return salida, avisos
+
+
 def combinar_opciones(guardado: dict | None, explicitas: dict | None) -> dict:
     """Atributos del perfil + opciones explicitas de la llamada. Lo explicito manda; y la cabecera explicita (en el plano) anula la cabecera_local
     del perfil, mientras que una cabecera_local del perfil (mas reciente, en coordenadas del dibujo del bloque) anula una cabecera global antigua."""
