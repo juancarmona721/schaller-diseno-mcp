@@ -42,6 +42,19 @@ def version_mcp(aqui: Path) -> str:
     return "desconocida"
 
 
+_ARRANQUE: dict = {}
+
+
+def registrar_arranque(aqui: Path) -> None:
+    """Se llama UNA vez al arrancar el servidor: recuerda con que version de codigo se cargo este proceso."""
+    _ARRANQUE.setdefault(str(aqui), version_mcp(aqui))
+
+
+def version_cargada(aqui: Path) -> str:
+    """Version del codigo que este proceso tiene CARGADO (no la del disco: si se actualizo el MCP sin reiniciar el cliente, el proceso sigue con el codigo viejo)."""
+    return _ARRANQUE.get(str(aqui)) or version_mcp(aqui)
+
+
 def _hay(modulo: str) -> bool:
     try:
         return importlib.util.find_spec(modulo) is not None
@@ -95,7 +108,11 @@ def estado_basico(aqui: Path, ruta_conexion: Path, carpeta_perfiles: Path, n_her
     return {
         "ok": True,
         "esquema": ESQUEMA,
-        "version_mcp": version_mcp(aqui),
+        "version_mcp": version_cargada(aqui),
+        **({"version_en_disco": version_mcp(aqui), "reinicio_necesario": True,
+            "aviso_reinicio": "El MCP se actualizo en disco pero este proceso sigue ejecutando el codigo anterior: cierra Claude Desktop POR COMPLETO "
+                              "(icono de la bandeja del sistema > Salir) y vuelve a abrirlo. Hasta entonces las herramientas nuevas no existen."}
+           if version_cargada(aqui) != version_mcp(aqui) else {}),
         "perfil_instalacion": perfil_instalacion(caps),
         "capacidades": caps,
         "autocad": {

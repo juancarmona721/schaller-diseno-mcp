@@ -196,3 +196,24 @@ def test_p95_solo_con_veinte_o_mas_muestras():
 ])
 def test_umbrales_de_regresion(ref, nuevo, estricto, investigar):
     assert ib.comparar(ref, nuevo, estricto)["investigar"] is investigar
+
+
+def test_estado_avisa_si_el_codigo_cambio_en_disco_sin_reiniciar(tmp_path):
+    """Si el MCP se actualiza mientras el proceso corre, la version CARGADA es la vieja y se pide reiniciar (antes mostraba la del disco y engañaba)."""
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("aaaaaaa1111111\n")
+    salud.registrar_arranque(tmp_path)
+    (tmp_path / ".git" / "HEAD").write_text("bbbbbbb2222222\n")          # git pull con el proceso vivo
+    r = salud.estado_basico(tmp_path, tmp_path / "c.json", tmp_path, 10, False)
+    assert r["version_mcp"] == "aaaaaaa" and r["version_en_disco"] == "bbbbbbb" and r["reinicio_necesario"] and "Claude Desktop" in r["aviso_reinicio"]
+    (tmp_path / ".git" / "HEAD").write_text("aaaaaaa1111111\n")
+    assert "reinicio_necesario" not in salud.estado_basico(tmp_path, tmp_path / "c.json", tmp_path, 10, False)
+
+
+def test_el_registro_de_uso_no_guarda_el_codigo_de_confirmacion(tmp_path, monkeypatch):
+    import json
+    import server
+    monkeypatch.setattr(server, "RUTA_USO", tmp_path / "uso.jsonl")
+    server._registrar_uso("ubicar_varios", {"items": "x", "confirmacion": 3457}, 5.0, True)
+    linea = json.loads((tmp_path / "uso.jsonl").read_text(encoding="utf-8"))
+    assert linea["args"]["confirmacion"] == "***" and "3457" not in (tmp_path / "uso.jsonl").read_text(encoding="utf-8")

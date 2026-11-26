@@ -55,7 +55,7 @@ def _max_objetos() -> int:
 def _registrar_uso(nombre: str, argumentos, ms: float, ok: bool, error=None, detalle=None) -> None:
     """Una linea por llamada: herramienta, duracion, resultado y un resumen CORTO de los argumentos. Nunca rompe la herramienta."""
     try:
-        resumen = {k: (str(v)[:60]) for k, v in (argumentos or {}).items()}
+        resumen = {k: ("***" if k == "confirmacion" and v not in (None, "") else str(v)[:60]) for k, v in (argumentos or {}).items()}
         RUTA_USO.parent.mkdir(parents=True, exist_ok=True)
         with open(RUTA_USO, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "herramienta": nombre, "ms": int(ms), "ok": ok,
@@ -73,6 +73,7 @@ def _serializado(fn):
             return fn(*args, **kwargs)
     return envuelta
 
+salud.registrar_arranque(AQUI)
 mcp = FastMCP("diseno-mcp", instructions=guia_diseno.instrucciones(referencias.REGLA))
 REF_JSON = AQUI / "referencias_finales.json"
 
