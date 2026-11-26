@@ -432,3 +432,16 @@ def test_la_guia_explica_los_planos_sin_rotulos_y_los_anfitriones_girados():
     import guia_diseno
     for frase in ("PLANOS SIN ROTULOS", "rol_origen", "NO tomes capturas", "ANFITRION GIRADO", "cabecera_local", "VARIAS PLANTAS", "NO es un piso"):
         assert frase in guia_diseno.FLUJO, frase
+
+
+def test_colocar_piezas_propias_no_invalida_la_cache_del_escaner(autocad, monkeypatch):
+    """Cada colocacion sube el numero de objetos del plano; si eso invalidara la cache, cada ciclo 'escanear -> colocar -> ajustar' releeria todo (~20 s)."""
+    estado, lecturas = autocad
+    monkeypatch.setattr(server.acad, "estado", lambda timeout_s=10: {"ok": True, "dibujo_activo": estado["dibujo"], "objetos_en_modelo": estado["objetos"],
+                                                                     "objetos_propios": estado.get("propios", 0)})
+    server.escanear_zonas()
+    estado["objetos"] += 33                       # el MCP coloco 33 entidades (26 piezas + 7 rotulos)
+    estado["propios"] = 33
+    assert server.escanear_zonas()["origen_datos"] == "cache" and len(lecturas) == 1
+    estado["objetos"] += 5                        # el usuario dibujo 5 objetos suyos: eso SI cambia el plano
+    assert server.escanear_zonas()["origen_datos"] == "lectura" and len(lecturas) == 2

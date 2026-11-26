@@ -524,7 +524,9 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
     if not nombre:
         return {"ok": False, "error": "sin_dibujo", "detalle": "No hay ningun dibujo activo en AutoCAD."}
     perfil = zonas_motor.cargar_perfil(CARPETA_PERFILES, nombre)
-    clave = zonas_motor.clave_cache(nombre, int(est.get("objetos_en_modelo") or 0), perfil, tipologia, zonas_motor.version_motor())
+    # lo que coloca este MCP no cambia lo que el escaner lee: no cuenta para la clave (si no, cada colocacion obligaria a releer todo el plano: ~20 s)
+    clave = zonas_motor.clave_cache(nombre, int(est.get("objetos_en_modelo") or 0) - int(est.get("objetos_propios") or 0), perfil, tipologia,
+                                    zonas_motor.version_motor())
     ruta = CARPETA_CACHE / f"zonas_{zonas_motor.slug_proyecto(nombre)}_{clave}.json"
     if not forzar and ruta.is_file():
         try:

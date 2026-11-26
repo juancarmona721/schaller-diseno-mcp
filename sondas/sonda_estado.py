@@ -43,6 +43,22 @@ def main():
         out["unidades"] = INSUNITS.get(u, str(u))
         out["pestana_actual"] = leer(lambda: doc.GetVariable("CTAB"))
         out["objetos_en_modelo"] = leer(lambda: doc.ModelSpace.Count)
+
+        def propios():
+            """Objetos que coloco ESTE MCP (capas SCH_ILUMINACION/SCH_AUDIO): no cuentan para saber si el plano cambio, porque el escaner ni los lee."""
+            from win32com.client import VARIANT
+            nombre_ss = f"SS_ESTADO_{__import__('os').getpid()}"
+            try:
+                doc.SelectionSets.Item(nombre_ss).Delete()
+            except Exception:
+                pass
+            ss = doc.SelectionSets.Add(nombre_ss)
+            try:
+                ss.Select(5, None, None, VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I2, (8,)), VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_VARIANT, ("SCH_ILUMINACION,SCH_AUDIO",)))
+                return int(ss.Count)
+            finally:
+                ss.Delete()
+        out["objetos_propios"] = leer(propios, 0)
     # AutoCAD LT no expone COM: si llegamos hasta aqui por COM, es la version completa.
     out["es_version_completa_con_com"] = ("LT" not in str(nombre).upper()) and bool(version)
     return out
