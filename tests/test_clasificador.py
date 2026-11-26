@@ -140,3 +140,34 @@ def test_un_recinto_con_texto_sigue_siendo_de_confianza_alta_y_no_se_duplica_com
 def test_el_resumen_de_lectura_cuenta_candidatos():
     r = zonas_motor.construir_zonas(raw_base([], poligonos=[rect(0, 0, 4, 3.5)]), VOCAB)
     assert r["resumen_lectura"]["recintos_candidatos"] == 1
+
+
+# ------------------------------------------------------------------------------------------------ lo aprendido en un plano real (textos internos, capas de cajetin)
+def test_los_textos_dentro_del_bloque_cuentan_como_evidencia():
+    r = cl.clasificar("dtjrtj (2D)", "0", 6.5, 1.1, {"anidados": [], "capas": ["MB-AMOBLAMIENTO"], "textos": ['MASTERCOOL 36"', "FRIDGE-FREEZER", "OVENS"]}, VOCAB)
+    assert r["rol"] == "cocina_mueble" and r["confianza"] == "media" and any(e["tipo"] == "texto_interno" for e in r["evidencias"])
+
+
+def test_un_codigo_de_modelo_sin_significado_no_clasifica_nada():
+    assert cl.clasificar("Gruppo-203", "0", 2.5, 3.0, {"anidados": [], "capas": ["MB-AMOBLAMIENTO"], "textos": ["TLEKS"]}, VOCAB) is None
+
+
+def poligono(x0, y0, x1, y1, capa):
+    return {"capa": capa, "pts": [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]}
+
+
+def test_los_poligonos_de_cajetin_y_de_mobiliario_no_son_recintos():
+    polis = [poligono(0, 0, 60, 14, "ROTULO"), poligono(0, 20, 5.5, 24.8, "MB-AMOBLAMIENTO"), poligono(10, 0, 14.5, 4.0, "X-PLANO 2")]
+    r = zonas_motor.construir_zonas(raw_base([], poligonos=polis), VOCAB)
+    assert r["total"] == 1 and r["zonas"][0]["area_m2"] == 18.0
+
+
+def test_un_poligono_enorme_es_un_contorno_no_un_recinto():
+    r = zonas_motor.construir_zonas(raw_base([], poligonos=[poligono(0, 0, 40, 30, "A-MURO")]), VOCAB)       # 1200 m2
+    assert r["total"] == 0
+
+
+def test_los_cajetines_no_cuentan_para_las_vistas():
+    from_polis = [poligono(i * 4, 0, i * 4 + 3.5, 3.5, "A") for i in range(3)] + [poligono(1000, 0, 1060, 9, "ROTULO") for _ in range(4)]
+    r = zonas_motor.construir_zonas(raw_base([], poligonos=from_polis), VOCAB)
+    assert len(r["vistas"]) == 1 and r["vistas"][0]["bbox"][2] < 20

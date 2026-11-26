@@ -47,6 +47,7 @@ def clasificar(nombre: str, capa: str, w_m: float | None, h_m: float | None, int
     interior = interior or {}
     anidados = [str(x) for x in interior.get("anidados", []) if x]
     capas = [str(x) for x in interior.get("capas", []) if x]
+    textos = [str(x) for x in interior.get("textos", []) if x]
     n = interior.get("n") or {}
     puntaje: dict = {}
     evid: dict = {}
@@ -57,6 +58,11 @@ def clasificar(nombre: str, capa: str, w_m: float | None, h_m: float | None, int
             extra = min(pesos["nombre_anidado_extra"] * (len(coinc) - 1), pesos["nombre_anidado_extra_max"])
             pts += pesos["nombre_anidado"] + extra
             ev.append({"tipo": "nombre_anidado", "detalle": coinc[:3], "peso": round(pesos["nombre_anidado"] + extra, 2)})
+        txt = sorted({t for t in textos if _coincide(rx, t)})
+        if txt:
+            peso_txt = pesos.get("texto_interno", 0.45) + min(pesos["nombre_anidado_extra"] * (len(txt) - 1), pesos["nombre_anidado_extra_max"])   # varios textos refuerzan
+            pts += peso_txt
+            ev.append({"tipo": "texto_interno", "detalle": txt[:3], "peso": round(peso_txt, 2)})
         cap = sorted({c for c in capas if _coincide(rx, c)})
         if cap:
             pts += pesos["capa_interna"]

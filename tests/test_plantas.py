@@ -87,3 +87,20 @@ def test_con_una_sola_vista_no_se_agrega_ruido_a_cada_zona():
     raw = {"unidad_m": 1.0, "textos": [], "poligonos": [poli(0, 0, 4, 3.5)], "bloques": []}
     r = zonas_motor.construir_zonas(raw, VOCAB)
     assert len(r["vistas"]) == 1 and r["zonas"][0].get("vista") == "vista_1"
+
+
+def test_los_objetos_sueltos_lejanos_no_inflan_la_caja_de_ninguna_vista():
+    sueltos = [rect(5000, 5000, 5000.5, 5000.5), rect(-9000, 20, -8999.5, 20.5)]
+    v = plantas.detectar(planta(0, 0) + planta(30, 0) + sueltos, [])
+    assert len(v) == 2 and max(x["bbox"][2] for x in v) < 50 and min(x["bbox"][0] for x in v) >= 0
+
+
+def test_una_caja_gigante_no_une_ni_define_vistas():
+    gigante = [rect(0, 0, 5000, 5)]                          # un trazo de 5 km
+    v = plantas.detectar(planta(0, 0) + planta(30, 0) + gigante, [])
+    assert len(v) == 2
+
+
+def test_el_ruido_cercano_si_se_une_a_su_vista():
+    v = plantas.detectar(planta(0, 0) + [rect(13, 2, 13.4, 2.4)], [])
+    assert len(v) == 1 and v[0]["n_elementos"] == 7

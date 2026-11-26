@@ -23,7 +23,7 @@ PRIORIDAD_ROL = ["cama", "sanitario", "isla", "cocina_mueble", "mesa_reuniones",
                  "vitrina_exhibidor", "mesa_comedor", "sofa"]
 CATEGORIAS_UBICUAS = 4           # una categoria presente en mas de 4 tipologias no aporta para deducir el tipo de proyecto
 AREA_MIN_M2, AREA_MAX_M2 = 1.5, 4000.0
-RECINTO_MIN_M2, RECINTO_LADO_MIN_M = 3.0, 1.2     # un poligono sin texto solo es CANDIDATO a recinto si es del tamano de una habitacion
+RECINTO_MIN_M2, RECINTO_MAX_M2, RECINTO_LADO_MIN_M = 3.0, 600.0, 1.2     # un poligono sin texto solo es CANDIDATO a recinto si es del tamano de una habitacion
 MAX_RECINTOS_CANDIDATOS = 60
 RADIO_ASOCIAR_M = 4.0            # mueble <-> texto cuando no hay poligono
 HUECO_CLUSTER_M = 3.0            # muebles con menos de esto entre sus cajas son de la misma zona (sofas enfrentados, escritorios contiguos)
@@ -38,6 +38,8 @@ class Vocabulario:
         self.contenedores = re.compile(datos["contenedores"], re.I)
         self.roles = [(r["rol"], re.compile(r["patron"], re.I)) for r in datos["roles"]]
         self.ignorar = re.compile(datos["ignorar_bloques"], re.I)
+        self.capas_anotacion = re.compile(datos.get("capas_anotacion") or r"(?!x)x", re.I)     # cajetines, marcos, leyendas: ni recintos ni vistas
+        self.capas_no_recinto = re.compile(datos.get("capas_no_recinto") or r"(?!x)x", re.I)  # ademas: mobiliario, vegetacion, cotas
         self.rol_a_zona = dict(datos["rol_a_zona"])
         self.nombres_roles = [r for r, _ in self.roles]
         self.tipologias = list(datos.get("tipologias", []))
@@ -213,7 +215,7 @@ def _contiene_bbox(a, b, tol=0.01) -> bool:
 def _poligonos_candidatos(polis: list, u: float) -> list:
     """Poligonos libres (sin texto) que pueden ser una habitacion. Descarta los pequenos o estrechos (muebles, franjas), los duplicados,
     los contornos que contienen varias habitaciones y los dobles trazos de muro (se queda el interior)."""
-    libres = [p for p in polis if p["area_m2"] >= RECINTO_MIN_M2 and min(p["bbox"][2] - p["bbox"][0], p["bbox"][3] - p["bbox"][1]) * u >= RECINTO_LADO_MIN_M]
+    libres = [p for p in polis if RECINTO_MIN_M2 <= p["area_m2"] <= RECINTO_MAX_M2 and min(p["bbox"][2] - p["bbox"][0], p["bbox"][3] - p["bbox"][1]) * u >= RECINTO_LADO_MIN_M]
     unicos = []
     for p in sorted(libres, key=lambda q: q["area_m2"]):
         if not any(_iou_bbox(p["bbox"], q["bbox"]) > 0.9 for q in unicos):
@@ -280,7 +282,7 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
         a_m2 = area_poligono(pts) * u * u
         if AREA_MIN_M2 <= a_m2 <= AREA_MAX_M2:
             xs, ys = [q[0] for q in pts], [q[1] for q in pts]
-            polis.append({"pts": pts, "area_m2": a_m2, "bbox": (min(xs), min(ys), max(xs), max(ys))})
+            polis.append({"pts": pts, "area_m2": a_m2, "bbox": (min(xs), min(ys), max(xs), max(ys)), "capa": p.get("capa", "")})
 
     def poligono_de(x, y):
         mejor = None
@@ -320,7 +322,9 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
         zonas.append(z)
 
     # --- recintos CANDIDATOS: poligonos del tamano de una habitacion que ningun texto reclamo (planos sin rotulos). Son hipotesis de confianza baja.
-    for i, p in enumerate(_poligonos_candidatos([q for q in polis if id(q) not in {id(z["_poli"]) for z in zonas if z.get("_poli")}], u), 1):
+    reclamados = {id(z["_poli"]) for z in zonas if z.get("_poli")}
+    libres = [q for q in polis if id(q) not in reclamados and not vocab.capas_no_recinto.search(q.get("capa", ""))]
+    for i, p in enumerate(_poligonos_candidatos(libres, u), 1):
         b = p["bbox"]
         zonas.append({"nombre": f"Recinto {i} (sin rotulo)", "tipo_espacio": "otro", "grupos": [], "x": round((b[0] + b[2]) / 2, 3),
                       "y": round((b[1] + b[3]) / 2, 3), "capa": "", "origen": "poligono", "confianza": "baja", "candidato": True,
@@ -443,7 +447,8 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
     sugerencias = sorted(resumen_sin_rol.values(), key=lambda r: -(r["ancho_m"] * r["alto_m"]))[:15]
 
     # --- vistas (plantas candidatas): geometria arquitectonica agrupada por separacion; cada zona se asigna a la suya
-    cajas = [p["bbox"] for p in polis] + [(h["_b"]["x0"], h["_b"]["y0"], h["_b"]["x1"], h["_b"]["y1"]) for h in hosts + sin_rol if "_b" in h]
+    cajas = [p["bbox"] for p in polis if not vocab.capas_anotacion.search(p.get("capa", ""))] + \
+            [(h["_b"]["x0"], h["_b"]["y0"], h["_b"]["x1"], h["_b"]["y1"]) for h in hosts + sin_rol if "_b" in h]
     vistas = plantas.detectar(cajas, raw.get("textos", []), u)
     for z in zonas:
         z["vista"] = plantas.vista_de(vistas, z["x"], z["y"])

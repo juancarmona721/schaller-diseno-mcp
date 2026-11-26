@@ -10,6 +10,8 @@ import re
 HUECO_M = 5.0                    # separacion entre cajas por encima de la cual son vistas distintas
 MIN_ELEMENTOS, MIN_AREA_M2 = 3, 15.0   # un grupo menor es ruido (cotas sueltas, detalles) y se une a la vista mas cercana
 DISTANCIA_NOMBRE_M = 8.0
+MAX_FUSION_M = 30.0           # el ruido mas lejos que esto de toda vista NO se le une (infla su caja): se descarta y se cuenta
+MAX_LADO_ELEMENTO_M = 300.0   # una caja de mas de 300 m de lado no es un elemento de la planta (marco, trazo suelto): se excluye
 PATRON_NIVEL = re.compile(r"\b(planta|piso|nivel|level|floor|sotano|s[oó]tano|basement|cubierta|azotea|roof|terraza|mezzanine|entrepiso)\b[\s\w.\-]{0,20}", re.I)
 
 
@@ -66,6 +68,7 @@ def detectar(cajas: list, textos: list, unidad_m: float = 1.0, hueco_m: float = 
     nivel: None, confianza}. Con una sola vista devuelve una lista de un elemento (el dibujo no tiene varias vistas).
     """
     cajas = [tuple(float(v) for v in c) for c in cajas if c and c[2] >= c[0] and c[3] >= c[1]]
+    cajas = [c for c in cajas if max(c[2] - c[0], c[3] - c[1]) * unidad_m <= MAX_LADO_ELEMENTO_M]
     if not cajas:
         return []
     hueco = hueco_m / unidad_m
@@ -85,9 +88,10 @@ def detectar(cajas: list, textos: list, unidad_m: float = 1.0, hueco_m: float = 
     for g in list(por_grupo):
         if g in grandes:
             continue
-        cercano = min(grandes, key=lambda h: _dist_cajas(info[g], info[h]))        # el ruido se une a la vista mas cercana
-        por_grupo[cercano] += por_grupo[g]
-        del por_grupo[g]
+        cercano = min(grandes, key=lambda h: _dist_cajas(info[g], info[h]))        # el ruido cercano se une a la vista mas cercana
+        if _dist_cajas(info[g], info[cercano]) * unidad_m <= MAX_FUSION_M:
+            por_grupo[cercano] += por_grupo[g]
+        del por_grupo[g]                                                           # y el lejano se descarta (no infla la caja de ninguna vista)
     vistas = []
     for g in sorted(grandes, key=lambda g: resumen(por_grupo[g])[0]):
         b = resumen(por_grupo[g])
