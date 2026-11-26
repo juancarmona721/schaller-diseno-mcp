@@ -245,6 +245,17 @@ def _poligonos_candidatos(polis: list, u: float, descartes: dict | None = None, 
         else:
             anota("duplicado")
     salida = []
+    # evidencia explicita > inferencia: un poligono DIBUJADO (no reconstruido) que contiene UN solo recinto reconstruido por muros conserva el dibujado;
+    # el reconstruido es un objeto interior (mueble, hueco, doble trazo), no otro recinto
+    sobran = set()
+    for p in unicos:
+        if p.get("origen_poli") == "muros":
+            continue
+        # por CAJA, no por punto: un poligono dibujado en U o en L deja el hueco fuera de si mismo y es justo lo que el reconstruido rellena
+        dentro = [q for q in unicos if q is not p and q["area_m2"] < p["area_m2"] and _contiene_bbox(p["bbox"], q["bbox"])]
+        if len(dentro) == 1 and dentro[0].get("origen_poli") == "muros":
+            sobran.add(id(dentro[0]))
+    unicos = [q for q in unicos if id(q) not in sobran or anota("reconstruccion_dentro_de_poligono")]
     for p in unicos:
         # un hijo debe estar DENTRO del poligono (centro incluido), no solo de su caja: un recinto en L tiene caja que cubre a sus vecinos
         hijos = [q for q in unicos if q is not p and _contiene_bbox(p["bbox"], q["bbox"]) and q["area_m2"] < p["area_m2"]

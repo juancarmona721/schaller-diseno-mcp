@@ -54,3 +54,35 @@ def test_zonas_traen_contorno_y_centroide_dentro_del_recinto():
     assert con and all(len(z["contorno"]) >= 3 for z in con)
     cx, cy = server._centroide([[0, 0], [4, 0], [4, 2], [0, 2]])
     assert (cx, cy) == (2.0, 1.0)
+
+
+def test_poligono_dibujado_en_U_conserva_el_dibujado_y_descarta_el_reconstruido_del_hueco():
+    U = {"pts": [(0, 0), (1, 0), (1, 3), (2, 3), (2, 0), (3, 0), (3, 4), (0, 4)], "area_m2": 8.0, "bbox": (0, 0, 3, 4), "capa": "x"}
+    hueco = _poli([(1, 0.1), (2, 0.1), (2, 3), (1, 3)])
+    hueco["area_m2"] = 3.0
+    d = {}
+    salida = zm._poligonos_candidatos([U, hueco], 1.0, d, {})
+    assert U in salida and hueco not in salida and d["reconstruccion_dentro_de_poligono"] == 1
+
+
+def test_recintos_ignoran_hojas_de_puerta_inclinadas_en_planos_ortogonales():
+    import pytest
+    import recintos
+    if not recintos.disponible():
+        pytest.skip("sin shapely")
+    caja = [(0, 0, 4, 0), (4, 0, 4, 3), (4, 3, 0, 3), (0, 3, 0, 0)]
+    hoja = [(0.2, 0.2, 1.1, 0.9)]                                   # hoja de puerta abierta: un segmento inclinado dentro del cuarto
+    r = recintos.reconstruir(caja + hoja, 1.0, None, {"area_min_m2": 1.0})
+    assert r["diagnostico"]["inclinados_descartados"] == 1
+    assert len(r["recintos"]) == 1 and abs(r["recintos"][0]["area_m2"] - 12.0) < 0.6
+
+
+def test_prolongacion_cierra_una_puerta_en_linea_recta():
+    import pytest
+    import recintos
+    if not recintos.disponible():
+        pytest.skip("sin shapely")
+    # cuarto de 4x3 con una puerta de 0.9 m en el muro de abajo (tramos 0-1.5 y 2.4-4)
+    segs = [(0, 0, 1.5, 0), (2.4, 0, 4, 0), (4, 0, 4, 3), (4, 3, 0, 3), (0, 3, 0, 0)]
+    r = recintos.reconstruir(segs, 1.0, None, {"cierre_por_prolongacion": True, "area_min_m2": 1.0})
+    assert len(r["recintos"]) == 1 and r["diagnostico"]["aberturas_cerradas"] >= 1

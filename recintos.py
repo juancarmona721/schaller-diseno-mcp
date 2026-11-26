@@ -18,7 +18,35 @@ PARAMETROS = {
     "area_max_m2": 600.0,
     "max_segmentos": 12000,
     "simplificar_m": 0.02,
+    "ortogonal_dominante": 0.85,  # si al menos esta fraccion de la longitud de muros va en dos direcciones perpendiculares, lo inclinado es ruido (hoja de puerta, arco)
+    "tolerancia_angulo": 4.0,     # grados respecto de la direccion dominante
+    "filtrar_inclinados": True,
+    "cierre_por_prolongacion": False,   # experimental: cierra aberturas prolongando el muro; apagado porque cambia recintos ya validados a ojo
 }
+
+
+def _direccion_dominante(segs):
+    """Direccion principal de los muros (grados, modulo 90) y fraccion de la longitud que va paralela o perpendicular a ella. PURO.
+    Media circular con 4*angulo para que 0 y 90 cuenten igual."""
+    sx = sy = tot = 0.0
+    for a, b, c, d in segs:
+        L = math.hypot(c - a, d - b)
+        if L <= 0:
+            continue
+        ang = math.atan2(d - b, c - a)
+        sx += L * math.sin(4 * ang)
+        sy += L * math.cos(4 * ang)
+        tot += L
+    if tot <= 0:
+        return 0.0, 0.0
+    theta = math.degrees(math.atan2(sx, sy) / 4)
+    return theta, None
+
+
+def _desviacion(dx, dy, theta):
+    """Grados entre una direccion y el eje (theta o theta+90) mas cercano."""
+    a = math.degrees(math.atan2(dy, dx)) - theta
+    return abs(((a + 45) % 90) - 45)
 
 
 def disponible() -> bool:
@@ -41,6 +69,43 @@ def _segmentos_a_metros(segmentos, u, minimo):
         vistos.add(clave)
         salida.append((x1, y1, x2, y2))
     return salida
+
+
+def _cierres_por_prolongacion(lineas, libres, p, sh, arbol):
+    """Cierra cada abertura PROLONGANDO el muro en linea recta desde su extremo libre hasta el primer muro que encuentre (a menos de `abertura_max_m`).
+    Una puerta o un vano interrumpe el muro; su cierre natural es la continuacion del propio muro, nunca una diagonal entre extremos cualesquiera.
+    Devuelve [(x1, y1, x2, y2)]."""
+    from shapely.ops import nearest_points
+    tol, largo = p["tolerancia_extremo_m"], p["abertura_max_m"]
+    cierres, vistos = [], set()
+    for (x, y, i) in libres:
+        cs = list(lineas[i].coords)
+        a = cs[0] if (round(cs[0][0], 3), round(cs[0][1], 3)) == (round(x, 3), round(y, 3)) else cs[-1]
+        b = cs[1] if a is cs[0] else cs[-2]
+        dx, dy = a[0] - b[0], a[1] - b[1]
+        L = math.hypot(dx, dy)
+        if L <= 1e-9:
+            continue
+        dx, dy = dx / L, dy / L
+        rayo = sh.LineString([(x + dx * 1e-4, y + dy * 1e-4), (x + dx * largo, y + dy * largo)])
+        mejor = None
+        pt0 = sh.Point(x, y)
+        for j in arbol.query(rayo):
+            if j == i:
+                continue
+            inter = rayo.intersection(lineas[j].buffer(tol))
+            if inter.is_empty:
+                continue
+            q = nearest_points(pt0, inter)[1]
+            d = pt0.distance(q)
+            if d > tol and (mejor is None or d < mejor[0]):
+                mejor = (d, q.x, q.y)
+        if mejor:
+            clave = tuple(sorted(((round(x, 2), round(y, 2)), (round(mejor[1], 2), round(mejor[2], 2)))))
+            if clave not in vistos:
+                vistos.add(clave)
+                cierres.append((x, y, mejor[1], mejor[2]))
+    return cierres
 
 
 def _cierres_de_aberturas(lineas, p, sh):
@@ -66,10 +131,22 @@ def _cierres_de_aberturas(lineas, p, sh):
                 libres.append((q[0], q[1], i))
     if len(libres) < 2:
         return [], len(libres)
+    # Plano ortogonal: cada abertura se cierra PROLONGANDO el muro en linea recta; el emparejamiento de extremos solo rescata los que quedaron sin cierre
+    # (el vecino mas cercano). Plano no ortogonal: emparejamiento de siempre (todos los extremos libres cercanos).
+    previos = []
+    prolongar = p.get("_eje") is not None and p.get("cierre_por_prolongacion", False)
+    if prolongar:
+        previos = _cierres_por_prolongacion(lineas, libres, p, sh, arbol)
     pts = [sh.Point(x, y) for x, y, _ in libres]
     arbol_pts = STRtree(pts)
-    cierres, usados = [], set()
+    cierres, usados, cerrados = list(previos), set(), set()
+    for (ax, ay, bx, by) in previos:                       # extremos que la prolongacion ya cerro (el origen del cierre)
+        for k, (x, y, _) in enumerate(libres):
+            if abs(x - ax) < 1e-6 and abs(y - ay) < 1e-6:
+                cerrados.add(k)
     for k, (x, y, i) in enumerate(libres):
+        if prolongar and k in cerrados:
+            continue
         cand = []
         for m in arbol_pts.query(pts[k].buffer(p["abertura_max_m"])):
             if m == k or libres[m][2] == i:
@@ -78,8 +155,8 @@ def _cierres_de_aberturas(lineas, p, sh):
             if d <= p["abertura_max_m"]:
                 cand.append((d, m))
         cand.sort()
-        for d, m in cand[:6]:                       # TODOS los extremos libres cercanos (no solo el mas cercano: el mas cercano suele ser la otra cara del
-            par = (min(k, m), max(k, m))            # mismo muro, que cierra el grosor pero no el vano)
+        for d, m in cand[: (1 if prolongar else 6)]:       # sin prolongacion: TODOS los cercanos (el mas cercano suele ser la otra cara del mismo muro)
+            par = (min(k, m), max(k, m))
             if par in usados:
                 continue
             cierre = sh.LineString([(x, y), (libres[m][0], libres[m][1])])
@@ -110,6 +187,18 @@ def reconstruir(segmentos: list, u: float = 1.0, poligonos_muro: list | None = N
     import shapely.geometry as sh
     from shapely.ops import unary_union
     segs = _segmentos_a_metros(segmentos[:p["max_segmentos"]], u, p["longitud_min_m"])
+    theta, _ = _direccion_dominante(segs)
+    tot_l = sum(math.hypot(c - a, d - b) for a, b, c, d in segs) or 1.0
+    ort_l = sum(math.hypot(c - a, d - b) for a, b, c, d in segs if _desviacion(c - a, d - b, theta) <= p["tolerancia_angulo"])
+    eje = None
+    if segs and ort_l / tot_l >= p["ortogonal_dominante"]:         # plano ortogonal: lo inclinado (hojas de puerta, arcos) no es muro ni cierra aberturas
+        eje = theta
+        if p["filtrar_inclinados"]:
+            antes = len(segs)
+            segs = [s for s in segs if _desviacion(s[2] - s[0], s[3] - s[1], theta) <= p["tolerancia_angulo"]]
+            diag["inclinados_descartados"] = antes - len(segs)
+    diag["orientacion"] = {"eje_grados": round(theta % 90, 1), "ortogonal_pct": round(100 * ort_l / tot_l, 1), "aplicada": eje is not None}
+    p = {**p, "_eje": eje}
     sol = [[(x * u, y * u) for x, y in pol] for pol in (poligonos_muro or []) if len(pol) >= 3]
     diag.update(segmentos=len(segs), poligonos_muro=len(sol), longitud_muros_m=round(sum(math.hypot(c - a, d - b) for a, b, c, d in segs), 2))
     if len(segs) < 4 and not sol:
