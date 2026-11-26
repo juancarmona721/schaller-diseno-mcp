@@ -314,7 +314,7 @@ def _medidas_plano(u, vistas, muros, segs, zonas, reconstruccion, decision=None,
         d = reconstruccion.get("diagnostico", {})
         out["reconstruccion_por_muros"] = {"ok": reconstruccion.get("ok"), "error": reconstruccion.get("error"), "recintos": len(reconstruccion.get("recintos", [])),
                                            "recintos_reconstruidos": reconstruccion.get("detalle", []),
-                                           **{k: d[k] for k in ("aberturas_cerradas", "extremos_libres", "componentes_libres", "descartados", "pequenos_mayores", "detalle") if k in d}}
+                                           **{k: d[k] for k in ("aberturas_cerradas", "extremos_libres", "componentes_libres", "descartados", "pequenos_mayores", "completados_sin_lineas_sueltas", "lineas_sueltas_descartadas_m", "detalle") if k in d}}
     return out
 
 

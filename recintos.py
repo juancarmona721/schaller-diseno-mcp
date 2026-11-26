@@ -21,6 +21,7 @@ PARAMETROS = {
     "ortogonal_dominante": 0.85,  # si al menos esta fraccion de la longitud de muros va en dos direcciones perpendiculares, lo inclinado es ruido (hoja de puerta, arco)
     "tolerancia_angulo": 4.0,     # grados respecto de la direccion dominante
     "filtrar_inclinados": True,
+    "completar_sin_lineas_sueltas": True,   # 2a pasada: recintos que solo aparecen al ignorar las lineas SUELTAS (juntas de baldosas, mobiliario) y que la 1a no cubria
     "cierre_por_prolongacion": False,   # experimental: cierra aberturas prolongando el muro; apagado porque cambia recintos ya validados a ojo
 }
 
@@ -174,6 +175,30 @@ def _cierres_de_aberturas(lineas, p, sh):
     return cierres, len(libres)
 
 
+def _completar_sin_lineas_sueltas(recintos, segs, sol, p, u, parametros, sh) -> tuple:
+    """Segunda pasada: un piso en cuadricula (juntas de baldosas) o el borde de un mueble se leen como muros y parten un bano en celdas diminutas que se
+    descartan. Se vuelve a reconstruir SOLO con los segmentos que tienen cara pareja (muros a doble linea) y se AGREGAN los recintos nuevos que la primera
+    pasada no cubria (menos de la mitad de su area). Lo ya reconstruido no se toca."""
+    import muros
+    pareados, info = muros.segmentos_con_pareja(segs, 1.0)
+    if info["descartados"] < 3:
+        return recintos, {}
+    otra = reconstruir(pareados, 1.0, sol, {**(parametros or {}), "completar_sin_lineas_sueltas": False})
+    if not otra.get("ok"):
+        return recintos, {}
+    previos = [sh.Polygon([(x * u, y * u) for x, y in r["pts"]]).buffer(0) for r in recintos]
+    nuevos = []
+    for rb in otra["recintos"]:
+        pb = sh.Polygon(rb["pts"]).buffer(0)                         # ya en metros (u=1)
+        if pb.is_empty or pb.area < p["area_min_m2"]:
+            continue
+        cubierto = sum(pb.intersection(q).area for q in previos) / pb.area
+        if cubierto < 0.5:
+            nuevos.append({"pts": [(x / u, y / u) for x, y in rb["pts"]], "area_m2": rb["area_m2"], "area_neta_m2": rb["area_neta_m2"], "huecos": rb["huecos"],
+                           "sin_lineas_sueltas": True})
+    return recintos + nuevos, {"completados_sin_lineas_sueltas": len(nuevos), "lineas_sueltas_descartadas_m": info["longitud_descartada_m"]}
+
+
 def reconstruir(segmentos: list, u: float = 1.0, poligonos_muro: list | None = None, parametros: dict | None = None) -> dict:
     """segmentos: [(x1,y1,x2,y2)] en unidades del dibujo; poligonos_muro: [[(x,y),...]] trazos cerrados finos que SON muros (opcional).
 
@@ -261,6 +286,13 @@ def reconstruir(segmentos: list, u: float = 1.0, poligonos_muro: list | None = N
         recintos.append({"pts": [(x / u, y / u) for x, y in list(ext.exterior.coords)[:-1]], "area_m2": round(ext.area, 3),
                          "area_neta_m2": round(area_neta, 3), "huecos": len(c.interiors)})
     diag.update(componentes_libres=len(comps), descartados=descartes, recintos=len(recintos))
+    if p.get("completar_sin_lineas_sueltas") and segs:
+        try:
+            recintos, extra = _completar_sin_lineas_sueltas(recintos, segs, sol, p, u, parametros, sh)
+            diag.update(extra)
+            diag["recintos"] = len(recintos)
+        except Exception as e:                      # la segunda pasada nunca estropea el resultado de la primera
+            diag["completar_error"] = f"{type(e).__name__}: {e}"[:120]
     if pequenos:                                  # los mayores primero: son los que podrian ser un bano o un closet
         diag["pequenos_mayores"] = sorted(pequenos, key=lambda q: -q["area_m2"])[:15]
     return {"ok": True, "recintos": recintos, "diagnostico": diag}

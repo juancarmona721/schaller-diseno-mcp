@@ -135,3 +135,43 @@ def ejes_de_muro(segmentos: list, u: float = 1.0) -> dict:
     return {"pares": len(espesores), "longitud_eje_m": round(longitud_eje, 1), "espesor_mediano_m": round(p.get("p50", 0), 3),
             "espesor_p10_m": round(p.get("p10", 0), 3), "espesor_p90_m": round(p.get("p90", 0), 3),
             "longitud_caras_m": round(total, 1), "longitud_sin_pareja_m": round(max(0.0, total - emparejado), 1)}
+
+
+def segmentos_con_pareja(segmentos: list, u: float = 1.0, minimo: float = 0.5) -> tuple:
+    """Deja solo los segmentos ortogonales que tienen al menos `minimo` (fraccion de su largo) cubierto por una CARA PAREJA (segmento paralelo a 4-45 cm que se
+    solapa): asi se distinguen los muros dibujados a doble linea de las lineas SUELTAS (juntas de baldosas, mobiliario, cotas). PURO.
+    -> (segmentos_conservados, {"conservados", "descartados", "longitud_descartada_m"}). Los no ortogonales se conservan tal cual (aqui no se juzgan)."""
+    horiz, vert, otros = [], [], []
+    for k, s in enumerate(segmentos):
+        x1, y1, x2, y2 = s[0] * u, s[1] * u, s[2] * u, s[3] * u
+        if math.hypot(x2 - x1, y2 - y1) <= 0:
+            continue
+        if not _angulo_ortogonal(x2 - x1, y2 - y1):
+            otros.append(k)
+        elif abs(y2 - y1) <= abs(x2 - x1):
+            horiz.append((round((y1 + y2) / 2, 4), min(x1, x2), max(x1, x2), k))
+        else:
+            vert.append((round((x1 + x2) / 2, 4), min(y1, y2), max(y1, y2), k))
+    cubierto = {}
+    for grupo in (horiz, vert):
+        grupo.sort()
+        for i, (c1, a1, b1, k1) in enumerate(grupo):
+            for j in range(i + 1, len(grupo)):
+                c2, a2, b2, k2 = grupo[j]
+                if c2 - c1 > ESPESOR_MAX_M:
+                    break
+                if c2 - c1 < ESPESOR_MIN_M:
+                    continue
+                solape = min(b1, b2) - max(a1, a2)
+                if solape > 0:
+                    cubierto[k1] = cubierto.get(k1, 0.0) + solape
+                    cubierto[k2] = cubierto.get(k2, 0.0) + solape
+    conserva = set(otros)
+    for grupo in (horiz, vert):
+        for c, a, b, k in grupo:
+            if cubierto.get(k, 0.0) >= minimo * (b - a):
+                conserva.add(k)
+    sal = [s for k, s in enumerate(segmentos) if k in conserva]
+    perd = [segmentos[k] for k in range(len(segmentos)) if k not in conserva]
+    return sal, {"conservados": len(sal), "descartados": len(perd),
+                 "longitud_descartada_m": round(sum(math.hypot(s[2] - s[0], s[3] - s[1]) for s in perd) * u, 1)}

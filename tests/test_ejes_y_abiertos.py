@@ -86,3 +86,30 @@ def test_prolongacion_cierra_una_puerta_en_linea_recta():
     segs = [(0, 0, 1.5, 0), (2.4, 0, 4, 0), (4, 0, 4, 3), (4, 3, 0, 3), (0, 3, 0, 0)]
     r = recintos.reconstruir(segs, 1.0, None, {"cierre_por_prolongacion": True, "area_min_m2": 1.0})
     assert len(r["recintos"]) == 1 and r["diagnostico"]["aberturas_cerradas"] >= 1
+
+
+def _bano_con_baldosas():
+    """Cuarto de 3.6 x 3.0 m a DOBLE linea (caras a 12 cm) con juntas de baldosa SUELTAS (a >45 cm de las caras y entre si) que lo parten en celdas pequenas."""
+    exterior = [(0, 0, 3.6, 0), (3.6, 0, 3.6, 3.0), (3.6, 3.0, 0, 3.0), (0, 3.0, 0, 0)]
+    interior = [(0.12, 0.12, 3.48, 0.12), (3.48, 0.12, 3.48, 2.88), (3.48, 2.88, 0.12, 2.88), (0.12, 2.88, 0.12, 0.12)]
+    juntas = [(0.12, 1.0, 3.48, 1.0), (0.12, 2.0, 3.48, 2.0), (1.0, 0.12, 1.0, 2.88), (1.8, 0.12, 1.8, 2.88), (2.6, 0.12, 2.6, 2.88)]
+    return exterior + interior, juntas
+
+
+def test_segmentos_con_pareja_descarta_las_juntas_y_conserva_los_muros():
+    muros_, juntas = _bano_con_baldosas()
+    sal, info = muros.segmentos_con_pareja(muros_ + juntas, 1.0)
+    assert info["descartados"] == 5 and len(sal) == 8
+
+
+def test_un_bano_partido_por_juntas_de_baldosa_se_recupera_en_la_segunda_pasada():
+    import pytest
+    import recintos
+    if not recintos.disponible():
+        pytest.skip("sin shapely")
+    muros_, juntas = _bano_con_baldosas()
+    sin = recintos.reconstruir(muros_ + juntas, 1.0, None, {"completar_sin_lineas_sueltas": False})
+    con = recintos.reconstruir(muros_ + juntas, 1.0, None, {})
+    assert len(sin["recintos"]) == 0                                  # celdas diminutas: todo descartado
+    assert len(con["recintos"]) == 1 and con["recintos"][0]["sin_lineas_sueltas"] and con["diagnostico"]["completados_sin_lineas_sueltas"] == 1
+    assert 9.0 < con["recintos"][0]["area_m2"] < 11.0
