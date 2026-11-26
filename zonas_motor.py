@@ -14,6 +14,7 @@ from pathlib import Path
 
 import clasificador
 import medidas
+import muros as muros_mod
 import recintos
 import plantas
 import unidades
@@ -237,7 +238,7 @@ def _poligonos_candidatos(polis: list, u: float) -> list:
     return salida
 
 
-def _medidas_plano(u, vistas, muros, segs, zonas, reconstruccion) -> dict:
+def _medidas_plano(u, vistas, muros, segs, zonas, reconstruccion, decision=None) -> dict:
     """Resumen cuantitativo del plano en METROS, sin ninguna regla de diseno: extension de cada vista, muros leidos, recintos y sus areas."""
     cuenta = {}
     for z in zonas:
@@ -247,7 +248,11 @@ def _medidas_plano(u, vistas, muros, segs, zonas, reconstruccion) -> dict:
            "vistas": [{"id": v["id"], "ancho_m": round((v["bbox"][2] - v["bbox"][0]) * u, 2), "alto_m": round((v["bbox"][3] - v["bbox"][1]) * u, 2),
                        "area_envolvente_m2": round((v["bbox"][2] - v["bbox"][0]) * (v["bbox"][3] - v["bbox"][1]) * u * u, 1), "elementos": v["n_elementos"]} for v in vistas],
            "muros": {"segmentos": len(segs), "longitud_total_m": round(sum(math.hypot(s_[2] - s_[0], s_[3] - s_[1]) for s_ in segs) * u, 1),
-                     "capas": (muros or {}).get("capas", {}), "entidades_en_capas_de_muros": (muros or {}).get("entidades", 0), "truncado": bool((muros or {}).get("truncado"))},
+                     "capas": (muros or {}).get("capas", {}), "entidades_en_capas_de_muros": (muros or {}).get("entidades", 0), "truncado": bool((muros or {}).get("truncado")),
+                     "como_se_eligieron": (decision or {}).get("modo", "ninguno"), "capas_usadas": (decision or {}).get("capas", []),
+                     **({"aviso": "Ninguna capa se llama como un muro: se eligieron por su geometria (trazos largos y ortogonales). Es una hipotesis de confianza baja."}
+                        if (decision or {}).get("modo") == "geometria" else {})},
+           "lineas_por_capa": (decision or {}).get("estadisticas", {}),
            "recintos": {"total": len(zonas), "por_origen": cuenta, "con_medidas": len(areas), "area_total_m2": round(sum(areas), 1),
                         "area_media_m2": round(sum(areas) / len(areas), 1) if areas else None}}
     if reconstruccion is not None:
@@ -292,10 +297,14 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
         if len(pts) >= 3:
             xs, ys = [q[0] for q in pts], [q[1] for q in pts]
             dims.append(max(max(xs) - min(xs), max(ys) - min(ys)))
-    segs_muros = (raw.get("muros") or {}).get("segmentos") or []
-    for sg in segs_muros[:600]:
+    segs_nombre = (raw.get("muros") or {}).get("segmentos") or []
+    lineas = (raw.get("lineas") or {}).get("segmentos") or []
+    for sg in segs_nombre[:500] + lineas[:500]:
         dims.append(math.hypot(sg[2] - sg[0], sg[3] - sg[1]))
-    u, aviso_unidades = unidades.unidad_efectiva(u_declarada, dims)
+    u, aviso_unidades = unidades.unidad_efectiva(u_declarada, dims, extension=max(dims) if dims else None)
+    # que lineas son muros: por el nombre de la capa y, si ninguna se llama asi, por su geometria (hipotesis de confianza baja, informada)
+    decision_muros = muros_mod.elegir(segs_nombre, lineas, vocab.capas_muros_rx, vocab.capas_no_recinto, u)
+    segs_muros = decision_muros["segmentos"]
     radio = RADIO_ASOCIAR_M / u
     zonas = []
 
@@ -512,7 +521,7 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
     return {"zonas": zonas, "total": len(zonas), "tipologia": elegida, "tipologia_detectada": detectada, "tipologia_pesos": dict(orden),
             "bloques_ignorados": ignorados, "bloques_con_rol": len(hosts), "bloques_sin_rol": len(sin_rol),
             "sugerencias_roles": sugerencias, "unidad_m": u, "unidad_declarada_m": u_declarada, "aviso_unidades": aviso_unidades, "vistas": vistas,
-            "medidas_plano": _medidas_plano(u, vistas, raw.get("muros"), segs_muros, zonas, reconstruccion),
+            "medidas_plano": _medidas_plano(u, vistas, raw.get("muros"), segs_muros, zonas, reconstruccion, decision_muros),
             "resumen_lectura": {"textos": len(raw.get("textos", [])), "textos_con_nombre_de_espacio": n_reconocidos,
                                 "poligonos": len(raw.get("poligonos", [])), "poligonos_con_area_de_recinto": len([q for q in polis if q.get("origen_poli") != "muros"]),
                                 "segmentos_de_muro": len(segs_muros), "recintos_por_muros": len([q for q in polis if q.get("origen_poli") == "muros"]),

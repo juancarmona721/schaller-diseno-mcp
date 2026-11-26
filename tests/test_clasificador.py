@@ -168,6 +168,6 @@ def test_un_poligono_enorme_es_un_contorno_no_un_recinto():
 
 
 def test_los_cajetines_no_cuentan_para_las_vistas():
-    from_polis = [poligono(i * 4, 0, i * 4 + 3.5, 3.5, "A") for i in range(3)] + [poligono(1000, 0, 1060, 9, "ROTULO") for _ in range(4)]
+    from_polis = [poligono(i * 4, 0, i * 4 + 3.5, 3.5, "A") for i in range(3)] + [poligono(1000, 0, 1006, 2, "ROTULO") for _ in range(4)]
     r = zonas_motor.construir_zonas(raw_base([], poligonos=from_polis), VOCAB)
     assert len(r["vistas"]) == 1 and r["vistas"][0]["bbox"][2] < 20

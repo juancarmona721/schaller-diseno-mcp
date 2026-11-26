@@ -20,6 +20,7 @@ import zonas_motor  # noqa: E402
 UNIDAD_A_METROS = {1: 0.0254, 2: 0.3048, 3: 1609.344, 4: 0.001, 5: 0.01, 6: 1.0, 7: 1000.0, 10: 0.9144, 14: 0.1, 15: 10.0, 16: 100.0}
 CAPAS_PROPIAS = ("SCH_ILUMINACION", "SCH_AUDIO")           # lo que colocamos nosotros no es mobiliario del proyecto
 MAX_TEXTOS, MAX_POLI, MAX_BLOQUES, MAX_VERTICES = 8000, 6000, 8000, 200
+MAX_LINEAS, PRESUPUESTO_CONTENEDORES_S, MAX_ENTIDADES_CONTENEDOR = 15000, 40.0, 9000   # lineas y trazos de bloques contenedor (la arquitectura suele ir dentro de uno)
 PRESUPUESTO_TEXTOS_S = 20.0                      # los textos son lo mas caro de leer (varias llamadas COM cada uno)
 MAX_MUROS, PRESUPUESTO_MUROS_S = 8000, 12.0     # entidades de capas de muros que se leen, con tope de tiempo
 MAX_DEFINICIONES, MAX_ENTIDADES_DEFINICION, PRESUPUESTO_DEFINICIONES_S = 25, 300, 10.0     # definiciones sin rol que se abren, con tope de tiempo
@@ -163,6 +164,23 @@ def _leer_definicion(doc, nombre):
     return {"anidados": sorted(anidados)[:20], "capas": sorted(capas)[:20], "textos": textos, "n": n, "total": total, "leidas": leidas}
 
 
+def _agregar_segmentos(e, on, tr, salida):
+    """Segmentos [x1, y1, x2, y2, capa] de una LINEA o de una polilinea (abierta o cerrada), llevados a coordenadas del plano. Para planos sin capas de muros."""
+    capa = str(e.Layer)
+    if on == "AcDbLine":
+        a, b = e.StartPoint, e.EndPoint
+        p1, p2 = tr.punto(float(a[0]), float(a[1])), tr.punto(float(b[0]), float(b[1]))
+        salida.append([round(p1[0], 4), round(p1[1], 4), round(p2[0], 4), round(p2[1], 4), capa])
+        return
+    c = list(e.Coordinates)
+    paso = 3 if on == "AcDb2dPolyline" else 2
+    pts = [tr.punto(c[k], c[k + 1]) for k in range(0, len(c) - paso + 1, paso)]
+    if getattr(e, "Closed", False) and len(pts) > 2:
+        pts.append(pts[0])
+    for k in range(len(pts) - 1):
+        salida.append([round(pts[k][0], 4), round(pts[k][1], 4), round(pts[k + 1][0], 4), round(pts[k + 1][1], 4), capa])
+
+
 def _posicion_texto(e):
     try:
         if getattr(e, "Alignment", 0) != 0:
@@ -287,31 +305,43 @@ def leer(doc, args) -> dict:
     finally:
         ss.Delete()
 
-    # ---- un nivel dentro de bloques contenedor (arquitectura dentro de un bloque)
-    dentro = 0
+    # ---- un nivel dentro de bloques contenedor (arquitectura dentro de un bloque). Ademas de textos, poligonos y bloques se leen las LINEAS y trazos (abiertos
+    # o cerrados) con su capa: son la materia prima de los muros cuando el plano no los trae en el espacio modelo.
+    dentro, lineas, trunc_lineas, leidas_cont = 0, [], False, 0
+    t_cont = time.time()
     for ref in contenedores:
         try:
             defn = doc.Blocks.Item(str(ref.EffectiveName))
             if defn.Count < 30:
                 continue
             tr = Transformacion(ref)
-            for j in range(min(defn.Count, 3000)):
-                if time.time() - t0 > limite:
+            for j in range(min(defn.Count, MAX_ENTIDADES_CONTENEDOR)):
+                if time.time() - t0 > limite or time.time() - t_cont > PRESUPUESTO_CONTENEDORES_S:
+                    avisos.append(f"Tiempo agotado leyendo el interior de un bloque contenedor ({j} de {defn.Count} entidades).")
                     break
                 try:
                     sub = defn.Item(j)
                     on = str(sub.ObjectName)
+                    leidas_cont += 1
                     if on in ("AcDbText", "AcDbMText"):
                         agregar_texto(sub, tr)
                     elif on in ("AcDbPolyline", "AcDb2dPolyline"):
                         agregar_poligono(sub, tr)
+                        _agregar_segmentos(sub, on, tr, lineas)
+                    elif on == "AcDbLine":
+                        _agregar_segmentos(sub, on, tr, lineas)
                     elif on == "AcDbBlockReference":
                         agregar_bloque(sub, tr)
                     else:
                         continue
                     dentro += 1
+                    if len(lineas) >= MAX_LINEAS:
+                        trunc_lineas = True
                 except Exception:
                     pass
+                if trunc_lineas:
+                    avisos.append(f"Mas de {MAX_LINEAS} lineas dentro del bloque contenedor: solo se usan las primeras.")
+                    break
         except Exception:
             pass
     # ---- muros (capas con nombre de muro/tabique/pared/columna...): materia prima de los recintos por geometria
@@ -342,7 +372,7 @@ def leer(doc, args) -> dict:
     if len(orden) > MAX_DEFINICIONES:
         avisos.append(f"Solo se abrieron las {MAX_DEFINICIONES} definiciones mas grandes de {len(orden)} bloques sin rol conocido.")
     return {"ok": True, "plano": str(doc.Name), "unidad_m": unidad_m, "insunits": ins, "n_objetos": int(doc.ModelSpace.Count),
-            "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "muros": muros, "contenedores_leidos": len(contenedores),
+            "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "muros": muros, "lineas": {"segmentos": lineas, "truncado": trunc_lineas, "entidades_leidas": leidas_cont}, "contenedores_leidos": len(contenedores),
             "elementos_en_contenedores": dentro, "avisos": avisos, "tiempo_lectura_s": round(time.time() - t0, 2)}
 
 
