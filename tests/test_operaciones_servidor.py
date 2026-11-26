@@ -218,3 +218,29 @@ def test_las_descripciones_dirigen_al_reemplazo_y_el_resultado_trae_la_pista(mon
     _montar(monkeypatch, existentes=[{"item_id": c0["item_id"], "bloque": "OTRO", "x": c0["x"], "y": c0["y"], "handle": "A1", "op_id": "op_x"}])
     r = server.ubicar_varios([ITEM], ejecutar=True)
     assert "reemplazar=True" in r["siguiente_paso"] and "NO borres todo" in r["siguiente_paso"]
+
+
+def test_un_recinto_del_escaneo_es_anfitrion_y_la_cuadricula_se_reparte_en_el_(monkeypatch):
+    """'recinto 2' se resuelve desde el escaneo (no desde un bloque); la cuadricula 2x2 sin separaciones reparte celdas iguales y queda dentro del recinto."""
+    vistos = _montar(monkeypatch)
+    zonas = [{"n": 1, "bbox": [0, 0, 2, 2], "medidas": {"angulo_grados": 0}}, {"n": 2, "bbox": [10, 10, 14, 16], "medidas": {"angulo_grados": 90}}]
+    monkeypatch.setattr(server, "_zonas_del_plano", lambda *a, **k: {"ok": True, "zonas": zonas, "unidad_m": 1.0})
+    item = {"receta": "cuadricula", "anfitrion": "recinto 2", "opciones": {"producto": "ci160", "filas": 2, "columnas": 2, "etiquetar": False}}
+    r = server.ubicar_varios([item], ejecutar=False)
+    assert r["ok"] and r["a_colocar"] == 4 and r["items"][0]["anfitrion"] == "Recinto 2"
+    xs = sorted({round(p[1], 2) for p in r["items"][0]["piezas"]})
+    ys = sorted({round(p[2], 2) for p in r["items"][0]["piezas"]})
+    assert xs == [11.0, 13.0] and ys == [11.5, 14.5]                 # celdas de 2 x 3 m en el recinto de 4 x 6 m
+
+
+def test_un_recinto_inexistente_se_omite_con_motivo(monkeypatch):
+    _montar(monkeypatch)
+    monkeypatch.setattr(server, "_zonas_del_plano", lambda *a, **k: {"ok": True, "zonas": [{"n": 1, "bbox": [0, 0, 1, 1]}], "unidad_m": 1.0})
+    r = server.ubicar_varios([{"receta": "centro", "anfitrion": "Recinto 9", "opciones": {"producto": "ci160"}}], ejecutar=False)
+    assert r["omitidos"] and r["omitidos"][0]["motivo"].startswith("El escaneo no trae un recinto numero 9")
+
+
+def test_cuadricula_con_separacion_que_no_cabe_avisa():
+    import motor_ubicacion as mu
+    plan, avisos = mu.planear("cuadricula", {"nombre": "R", "x0": 0, "y0": 0, "x1": 2, "y1": 2}, {"producto": "ci160", "filas": 1, "columnas": 3, "separacion_x": 1.5, "etiquetar": False})
+    assert len(plan) == 3 and any("no cabe" in a for a in avisos)

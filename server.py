@@ -2,6 +2,7 @@
 import functools
 import json
 import math
+import re
 import time
 import os
 import tomllib
@@ -487,6 +488,30 @@ def dibujar_espacios(espacios: list[dict], altura_texto: float = 200.0, ejecutar
     return {**r, **aviso}
 
 
+_RX_RECINTO = re.compile(r"^\s*(?:recinto|zona)\s*#?\s*(\d+)\s*$", re.IGNORECASE)
+
+
+def _anfitrion_de_recinto(zonas: list, ref, u: float) -> dict | None:
+    """'recinto 3' / 'zona 3' -> anfitrion construido desde la zona numero 3 del escaneo (el mismo numero que dibujo dibujar_recintos_revision). None si `ref`
+    no tiene esa forma. Devuelve {"nombre", "host"} o {"nombre", "error", "detalle"}."""
+    m = _RX_RECINTO.match(str(ref or ""))
+    if not m:
+        return None
+    n = int(m.group(1))
+    z = next((q for i, q in enumerate(zonas, 1) if q.get("n", i) == n), None)
+    nombre = f"Recinto {n}"
+    if z is None or not z.get("bbox"):
+        return {"nombre": nombre, "error": "recinto_inexistente", "detalle": f"El escaneo no trae un recinto numero {n} con limites. Hay {len(zonas)} zonas."}
+    b = z["bbox"]
+    med = z.get("medidas") or {}
+    host = {"nombre": nombre, "x0": b[0], "y0": b[1], "x1": b[2], "y1": b[3], "origen": "recinto"}
+    ang = med.get("angulo_grados")
+    aviso = None
+    if ang is not None and min(abs(ang) % 90, 90 - abs(ang) % 90) > 3:
+        aviso = (f"El recinto {n} esta girado {ang:g} grados: se calcula sobre su caja envolvente en el plano y puede no coincidir con su forma real.")
+    return {"nombre": nombre, "host": host, **({"aviso": aviso} if aviso else {})}
+
+
 def _centroide(pts) -> tuple:
     """Centroide de un poligono (formula del area); si es degenerado, el centro de su caja."""
     a = cx = cy = 0.0
@@ -599,6 +624,8 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
         except OSError:
             pass
     res = zonas_motor.construir_zonas(raw, VOCAB, perfil, tipologia)
+    for i_, z_ in enumerate(res.get("zonas", []), 1):       # numero de cada zona = su posicion: es el que dibuja dibujar_recintos_revision y el que entiende "recinto N"
+        z_["n"] = i_
     res = {"ok": True, "plano": raw.get("plano"), "origen_datos": "lectura", "tiempo_lectura_s": raw.get("tiempo_lectura_s"),
            "leido": {"textos": len(raw["textos"]), "poligonos": len(raw["poligonos"]), "bloques": len(raw["bloques"]),
                       "definiciones": len(raw.get("definiciones") or {}),
@@ -919,7 +946,9 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
     """UBICA TODO UN DISENO EN UNA SOLA LLAMADA (rapido): varias ubicaciones sobre varios anfitriones, leyendo el plano UNA vez. TAMBIEN CAMBIA un producto
     ya colocado (reemplazar=True): NO hace falta borrar nada para cambiar de producto.
 
-    items = [{"receta": ..., "anfitrion": "<bloque>", "opciones": {...}?, "cerca_de": [x, y]?}, ...]; mismas recetas y opciones que
+    items = [{"receta": ..., "anfitrion": "<bloque>", "opciones": {...}?, "cerca_de": [x, y]?}, ...]; el anfitrion puede ser un BLOQUE o un RECINTO del
+    escaneo: "recinto 3" (el numero `n` de escanear_zonas, el mismo que dibuja dibujar_recintos_revision). Receta "cuadricula" (filas x columnas,
+    centrada, reparto uniforme o separacion_x/separacion_y en m) sirve para cualquier recinto. Mismas recetas y opciones que
     ubicar_en_anfitrion. Es ~10 veces mas rapido que llamar a ubicar_en_anfitrion una por una (cada una releia el plano entero) y no deja
     que se pisen las llamadas en paralelo. Un item que no se puede resolver (anfitrion inexistente, receta imposible, sin muros) se OMITE y
     se reporta; no frena a los demas. No duplica lo ya colocado ni lo colocado por otro item del mismo lote. Aplica solos los atributos
@@ -950,8 +979,17 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
         return {"ok": False, "error": "operacion_previa_ambigua", "operaciones_previas": previas,
                 "detalle": "Una operacion anterior quedo a medias y hay piezas sin marca que no se pueden atribuir con seguridad. "
                            "Revisa el dibujo (o usa quitar_colocaciones) antes de volver a escribir aqui. No se escribio nada."}
+    hosts_ctx = list(ctx.get("hosts", []))
+    if any(isinstance(it, dict) and _RX_RECINTO.match(str(it.get("anfitrion") or "")) for it in items):      # "recinto N": un recinto del escaneo como anfitrion
+        rz = _zonas_del_plano()
+        if not rz.get("ok"):
+            return rz
+        for k, it in enumerate(items[:len(hosts_ctx)]):
+            h2 = _anfitrion_de_recinto(rz.get("zonas", []), it.get("anfitrion") if isinstance(it, dict) else None, u)
+            if h2 is not None:
+                hosts_ctx[k] = h2
     todas, detalle, reemplazos = [], [], []
-    for it, h in zip(items, ctx.get("hosts", [])):
+    for it, h in zip(items, hosts_ctx):
         r = {"receta": it.get("receta") if isinstance(it, dict) else None, "anfitrion": h.get("nombre")}
         if not isinstance(it, dict) or it.get("receta") not in motor_ubicacion.RECETAS:
             detalle.append({**r, "estado": "omitido", "error": "receta_desconocida", "detalle": f"Recetas: {', '.join(motor_ubicacion.RECETAS)}."})
@@ -966,6 +1004,8 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
         except motor_ubicacion.ErrorUbicacion as e:
             detalle.append({**r, "estado": "omitido", "error": "no_se_puede_ubicar", "detalle": str(e)})
             continue
+        if h.get("aviso"):
+            avisos = [h["aviso"]] + list(avisos or [])
         plan = operaciones.asignar_ids(plan, it.get("diseno_id") or DISENO_ID_PREDETERMINADO, host.get("handle") or host["nombre"], it["receta"])
         nuevas, omitidas, cambiadas = operaciones.sin_duplicados_logico(plan, existentes, tol=motor_ubicacion.TOL_DUPLICADO / u, u=u, reemplazar=bool(reemplazar))
         if reemplazar:

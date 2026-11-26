@@ -295,6 +295,37 @@ def receta_linea(host: dict, op: dict) -> tuple[list, list]:
     return plan, []
 
 
+def receta_cuadricula(host: dict, op: dict) -> tuple[list, list]:
+    """Rejilla de `filas` x `columnas` productos centrada en el anfitrion (un recinto, una mesa...). Opciones: producto, filas, columnas (obligatorios),
+    separacion_x / separacion_y (m entre centros; si faltan, el reparto es UNIFORME: el anfitrion se divide en celdas iguales y cada pieza va al centro de su
+    celda), rotacion_grados (de cada pieza). No impone ninguna distancia: no es una regla de diseno, solo geometria."""
+    r = rect(host)
+    prod = op.get("producto")
+    if not prod:
+        raise ErrorUbicacion("receta 'cuadricula' necesita producto.")
+    try:
+        filas, cols = int(op["filas"]), int(op["columnas"])
+    except (KeyError, TypeError, ValueError):
+        raise ErrorUbicacion("receta 'cuadricula' necesita filas y columnas (enteros).")
+    if not (1 <= filas <= 20 and 1 <= cols <= 20 and filas * cols <= 200):
+        raise ErrorUbicacion("filas y columnas deben estar entre 1 y 20 (maximo 200 piezas).")
+    sx = float(op["separacion_x"]) if op.get("separacion_x") not in (None, "") else r["w"] / cols
+    sy = float(op["separacion_y"]) if op.get("separacion_y") not in (None, "") else r["h"] / filas
+    if sx <= 0 or sy <= 0:
+        raise ErrorUbicacion("las separaciones deben ser mayores que 0.")
+    avisos = []
+    if (cols - 1) * sx > r["w"] + 1e-6 or (filas - 1) * sy > r["h"] + 1e-6:
+        avisos.append(f"La rejilla ({(cols - 1) * sx:.2f} x {(filas - 1) * sy:.2f} m entre centros) no cabe en el anfitrion ({r['w']:.2f} x {r['h']:.2f} m): se sale de el.")
+    rot = math.radians(float(op.get("rotacion_grados", 0)))
+    plan = []
+    for i in range(filas):
+        for j in range(cols):
+            x = r["cx"] + (j - (cols - 1) / 2) * sx
+            y = r["cy"] + ((filas - 1) / 2 - i) * sy
+            plan.append(colocacion(prod, x, y, rot, bool(op.get("etiquetar", True)), f"cuadricula fila {i + 1}/{filas}, columna {j + 1}/{cols}"))
+    return plan, avisos
+
+
 def receta_pared_frente(host: dict, op: dict) -> tuple[list, list]:
     """Productos de pared (parlantes Ci200QS) en el muro que mira el anfitrion, orientados hacia el.
 
@@ -363,6 +394,7 @@ RECETAS = {
     "mesa_4x": (receta_mesa_4x, "4 productos 2x2 sobre una mesa (por defecto parlantes Ci160CRDS)."),
     "tira_borde": (receta_tira_borde, "Durastrip centrada en un borde (N/S/E/O) del anfitrion."),
     "linea": (receta_linea, "n productos a lo largo del eje largo del anfitrion. Requiere producto."),
+    "cuadricula": (receta_cuadricula, "Rejilla filas x columnas centrada en el anfitrion (ej. un recinto). Requiere producto, filas y columnas; separacion_x/separacion_y en m opcionales (si faltan, reparto uniforme)."),
 }
 
 
