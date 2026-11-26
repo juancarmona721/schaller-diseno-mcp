@@ -563,6 +563,10 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
                 z["medidas"]["area_neta_m2"] = z["_poli"]["area_neta_m2"]
                 z["medidas"]["huecos"] = z["_poli"]["huecos"]
     for z in zonas:
+        if z.get("_poli"):                                   # contorno REAL (unidades del dibujo) para poder dibujarlo en AutoCAD y revisarlo a ojo
+            pts = z["_poli"]["pts"]
+            paso = max(1, math.ceil(len(pts) / 80))
+            z["contorno"] = [[round(q[0], 3), round(q[1], 3)] for q in pts[::paso]]
         z.pop("_poli", None)
     for h in hosts + sin_rol:
         h.pop("_b", None)

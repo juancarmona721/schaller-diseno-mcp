@@ -487,6 +487,60 @@ def dibujar_espacios(espacios: list[dict], altura_texto: float = 200.0, ejecutar
     return {**r, **aviso}
 
 
+def _centroide(pts) -> tuple:
+    """Centroide de un poligono (formula del area); si es degenerado, el centro de su caja."""
+    a = cx = cy = 0.0
+    for i in range(len(pts)):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % len(pts)]
+        f = x0 * y1 - x1 * y0
+        a += f
+        cx += (x0 + x1) * f
+        cy += (y0 + y1) * f
+    if abs(a) < 1e-9:
+        xs, ys = [q[0] for q in pts], [q[1] for q in pts]
+        return (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    return cx / (3 * a), cy / (3 * a)
+
+
+@mcp.tool()
+@_serializado
+def dibujar_recintos_revision(ejecutar: bool = False, capa: str = "SCH_REVISION", altura_texto_m: float = 0.25, reemplazar: bool = True,
+                              confirmacion: str | int | None = None) -> dict:
+    """MODIFICA EL DIBUJO (solo agrega, en UNA capa propia): dibuja el CONTORNO REAL de cada recinto que midio el ultimo escaneo, con su numero y
+    su area, para que el usuario compare lo medido con su plano a simple vista. No dibuja cajas aproximadas y no toca nada mas.
+
+    Usa el escaneo del plano activo (lo hace si no hay uno en cache). Los numeros coinciden con el orden de `zonas` de escanear_zonas
+    (1 = la primera zona con contorno). Con reemplazar=True (por defecto) quita antes lo que haya en ESA capa, asi se puede repetir sin duplicar.
+    Es una herramienta de REVISION: no es parte del diseno. Para quitarla: borra la capa o usa ejecutar con capa vacia desde AutoCAD (PURGE).
+    Por defecto es un ENSAYO; con ejecutar=True dibuja. En planos grandes exige `confirmacion` (CANDADO).
+    """
+    if (off := _escritura_off()):
+        return off
+    res = _zonas_del_plano()
+    if not res.get("ok"):
+        return res
+    u = float(res.get("unidad_m") or 1.0)
+    contornos, sin_contorno = [], 0
+    for i, z in enumerate(res.get("zonas", []), 1):
+        pts = z.get("contorno")
+        if not pts or len(pts) < 3:
+            sin_contorno += 1
+            continue
+        cx, cy = _centroide(pts)
+        area = (z.get("medidas") or {}).get("area_m2") or z.get("area_m2")
+        contornos.append({"pts": pts, "cx": cx, "cy": cy, "etiqueta": f"{i}: {area:g} m2" if area else str(i)})
+    if not contornos:
+        return {"ok": False, "error": "sin_contornos", "detalle": "El escaneo no trae recintos con contorno que dibujar (zonas sin poligono)."}
+    if not 0 < float(altura_texto_m) <= 5:
+        return {"ok": False, "error": "altura_invalida", "detalle": "altura_texto_m debe estar entre 0 y 5 metros."}
+    r = _escribir({"op": "contornos", "contornos": contornos, "capa": str(capa or "SCH_REVISION"), "altura_texto": float(altura_texto_m) / u,
+                   "reemplazar": bool(reemplazar), "ejecutar": bool(ejecutar), "confirmacion": confirmacion})
+    aviso = {} if ejecutar or not r.get("ok") else {"aviso": "ENSAYO: no se modifico nada. Repite con ejecutar=True."}
+    return {**r, **aviso, "zonas_sin_contorno": sin_contorno,
+            "nota": "Contornos reales en la capa indicada, con numero y area. Pidele al usuario que los compare con su plano."}
+
+
 def nombre_visible(bloque: str) -> str:
     """'Durastrip IP20_75W_Targetti' -> 'Durastrip IP20 75W' (sin la marca final; guiones bajos como espacios)."""
     base = str(bloque).rpartition("_")[0] or str(bloque)
@@ -600,7 +654,7 @@ def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = F
     """
     res = _zonas_del_plano(forzar_recarga, tipologia)
     if isinstance(res, dict) and res.get("ok"):
-        res = {**res, "siguiente_paso": "Si el usuario pidio COLOCAR: no preguntes; clasifica tu los bloques sin rol (perfil_proyecto accion='rol'), "
+        res = {**res, "zonas": [{k: v for k, v in z.items() if k != "contorno"} for z in res.get("zonas", [])], "siguiente_paso": "Si el usuario pidio COLOCAR: no preguntes; clasifica tu los bloques sin rol (perfil_proyecto accion='rol'), "
                                         "elige anfitriones (listar_anfitriones una sola vez) y coloca TODO con UNA llamada a ubicar_varios(ejecutar=True); "
                                         "informa supuestos y omitidos al final. Si pidio solo CONSULTAR o evaluar: no coloques nada. "
                                         "Las zonas con candidato=true o confianza baja son HIPOTESIS (poligonos sin rotulo): usalas para decidir, pero declaralas como "

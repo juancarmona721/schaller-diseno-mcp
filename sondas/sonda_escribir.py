@@ -203,6 +203,8 @@ def ejecutar_op(doc, args, mk=mk_variant, mkd=None):
         return {**base, **res, "handles": handles}
     if op == "espacios":
         return {**base, **_dibujar_espacios(doc, args, ejecutar, mk, mkd)}
+    if op == "contornos":
+        return {**base, **_dibujar_contornos(doc, args, ejecutar, mk, mkd)}
     return {"ok": False, "error": "operacion_desconocida", "detalle": str(op)}
 
 
@@ -238,6 +240,66 @@ def _dibujar_espacios(doc, args, ejecutar, mk, mkd):
             pass
         handles += [pl.Handle, t.Handle]
     return {**res, "handles": handles}
+
+
+def _borrar_capa_propia(doc, capa):
+    """Borra SOLO las entidades de la capa de revision (propia del MCP) para poder repetir el dibujo sin duplicar. Devuelve cuantas."""
+    import pythoncom
+    from win32com.client import VARIANT
+    nombre = "SCH_REV_TMP"
+    try:
+        doc.SelectionSets.Item(nombre).Delete()
+    except Exception:
+        pass
+    ss = doc.SelectionSets.Add(nombre)
+    try:
+        ss.Select(5, None, None, VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I2, (8,)), VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_VARIANT, (capa,)))
+        n = ss.Count
+        for i in range(n - 1, -1, -1):
+            ss.Item(i).Delete()
+        return n
+    finally:
+        try:
+            ss.Delete()
+        except Exception:
+            pass
+
+
+def _dibujar_contornos(doc, args, ejecutar, mk, mkd):
+    """Contornos REALES (polilineas cerradas) de los recintos medidos, con su numero y area, en una capa propia de revision. Solo agrega
+    (y, si `reemplazar`, quita antes lo que haya en ESA capa)."""
+    capa = args["capa"]
+    existia = existe(doc.Layers, capa)
+    res = {"capa": capa, "capa_existia": existia, "contornos": len(args["contornos"])}
+    if not ejecutar:
+        return res
+    if not existia:
+        lay = doc.Layers.Add(capa)
+        try:
+            lay.color = int(args.get("color", 1))
+        except Exception:
+            pass
+    quitados = _borrar_capa_propia(doc, capa) if existia and args.get("reemplazar", True) else 0
+    alto = float(args["altura_texto"])
+    handles = []
+    for c in args["contornos"]:
+        pts = c["pts"]
+        plano = []
+        for x, y in pts:
+            plano += [float(x), float(y)]
+        pl = doc.ModelSpace.AddLightWeightPolyline(mkd(plano))
+        pl.Closed = True
+        pl.Layer = capa
+        cx, cy = float(c["cx"]), float(c["cy"])
+        t = doc.ModelSpace.AddText(str(c["etiqueta"]), mk(cx, cy, 0), alto)
+        t.Layer = capa
+        try:
+            t.Alignment = 10
+            t.TextAlignmentPoint = mk(cx, cy, 0)
+        except Exception:
+            pass
+        handles += [pl.Handle, t.Handle]
+    return {**res, "reemplazados": quitados, "handles": handles}
 
 
 def main():

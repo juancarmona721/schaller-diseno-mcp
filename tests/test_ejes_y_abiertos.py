@@ -38,3 +38,19 @@ def test_contorno_que_si_contiene_varios_reporta_espacio_abierto():
     assert casco not in salida and d["contorno_que_contiene_varios"] == 1
     ab = det["espacios_abiertos"][0]
     assert ab["recintos_contenidos"] == 2 and abs(ab["area_libre_m2"] - 168.0) < 0.1
+
+
+def test_zonas_traen_contorno_y_centroide_dentro_del_recinto():
+    import json
+    import pathlib
+    import server
+    ruta = pathlib.Path.home() / ".schaller-diseno" / "debug" / "lectura_casavaica.json"
+    if not ruta.is_file():
+        import pytest
+        pytest.skip("sin lectura de depuracion")
+    raw = json.loads(ruta.read_text(encoding="utf-8"))
+    zonas = zm.construir_zonas(raw, zm.cargar_vocabulario())["zonas"]
+    con = [z for z in zonas if z.get("contorno")]
+    assert con and all(len(z["contorno"]) >= 3 for z in con)
+    cx, cy = server._centroide([[0, 0], [4, 0], [4, 2], [0, 2]])
+    assert (cx, cy) == (2.0, 1.0)
