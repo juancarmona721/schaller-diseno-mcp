@@ -218,6 +218,66 @@ def _contiene_bbox(a, b, tol=0.01) -> bool:
     return a[0] - tol * ancho <= b[0] and a[1] - tol * alto <= b[1] and b[2] <= a[2] + tol * ancho and b[3] <= a[3] + tol * alto
 
 
+SUBDIVIDIR_MIN_M2 = 30.0         # una zona de al menos esto con muebles de 2+ tipos de espacio se divide en subzonas (espacios abiertos: cocina + comedor + sala...)
+
+
+def _subdividir_por_mobiliario(zonas: list, u: float, vocab) -> int:
+    """Divide las zonas grandes que contienen mobiliario de DOS O MAS tipos de espacio en subzonas, una por tipo: celdas de Voronoi de los centros de cada tipo
+    recortadas al contorno de la zona (cada punto queda con el tipo de mobiliario mas cercano). Sirve cuando no hay muros que separen cocina, comedor y sala.
+    Devuelve cuantas zonas se dividieron. Sin Shapely no hace nada. Las subzonas son hipotesis de confianza baja."""
+    if not recintos.disponible():
+        return 0
+    import shapely.geometry as sh
+    from shapely.ops import voronoi_diagram
+    nuevas, quitar = [], []
+    for z in zonas:
+        poli = z.get("_poli")
+        if not z.get("candidato") or not poli or (z.get("area_m2") or 0) < SUBDIVIDIR_MIN_M2:
+            continue
+        por_tipo = {}
+        for m in z.get("muebles_detalle", []):
+            tipo = vocab.rol_a_zona.get(m.get("rol"))
+            if tipo:
+                por_tipo.setdefault(tipo, []).append(m)
+        if len(por_tipo) < 2:
+            continue
+        try:
+            poly = sh.Polygon(poli["pts"]).buffer(0)
+            centros = {t: (sum(m["x"] for m in ms) / len(ms), sum(m["y"] for m in ms) / len(ms)) for t, ms in por_tipo.items()}
+            vd = voronoi_diagram(sh.MultiPoint(list(centros.values())), envelope=poly)
+            celdas = {}
+            for cel in vd.geoms:
+                parte = cel.intersection(poly)
+                if parte.geom_type == "MultiPolygon":
+                    parte = max(parte.geoms, key=lambda g: g.area)
+                if parte.is_empty or parte.geom_type != "Polygon":
+                    continue
+                for t, (cx, cy) in centros.items():
+                    if cel.contains(sh.Point(cx, cy)):
+                        celdas[t] = parte
+            if len(celdas) != len(centros):
+                continue
+        except Exception:
+            continue
+        for k, (tipo, parte) in enumerate(sorted(celdas.items()), 1):
+            pts = [(x, y) for x, y in list(parte.exterior.coords)[:-1]]
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            c = parte.centroid
+            nueva = {**z, "nombre": f"{tipo.replace('_', ' ').capitalize()} (subzona de {z['nombre'].split(' (')[0]})", "tipo_espacio": tipo,
+                     "grupos": next((g for cc, g, _ in vocab.espacios if cc == tipo), []), "x": round(c.x, 3), "y": round(c.y, 3),
+                     "bbox": [round(min(xs), 3), round(min(ys), 3), round(max(xs), 3), round(max(ys), 3)], "area_m2": round(parte.area * u * u, 2),
+                     "muebles": sorted({m["nombre"] for m in por_tipo[tipo]}), "muebles_detalle": list(por_tipo[tipo]),
+                     "inferido_por": [f"subzona por mobiliario ({tipo.replace('_', ' ')}) dentro de una zona abierta de {z['area_m2']} m2: sin muros que la separen"],
+                     "subdividida_de": z["nombre"],
+                     "_poli": {"pts": pts, "area_m2": parte.area * u * u, "bbox": (min(xs), min(ys), max(xs), max(ys)), "capa": "muros", "origen_poli": "subdivision"}}
+            nuevas.append(nueva)
+        quitar.append(z)
+    for z in quitar:
+        zonas.remove(z)
+    zonas.extend(nuevas)
+    return len(quitar)
+
+
 def _poligonos_candidatos(polis: list, u: float, descartes: dict | None = None, detalle: dict | None = None) -> list:
     """Poligonos libres (sin texto) que pueden ser una habitacion. Descarta los pequenos o estrechos (muebles, franjas), los duplicados,
     los contornos que contienen varias habitaciones y los dobles trazos de muro (se queda el interior). `descartes` (opcional) cuenta POR QUE se descarto
@@ -501,6 +561,8 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
             z["inferido_por"] = [f"tipo deducido del mobiliario ({', '.join(sorted(set(roles)))})" + (" [parte inferido por la definicion de sus bloques]" if inferidos else "")]
         else:
             z["inferido_por"] = ["sin mobiliario clasificado dentro: tipo desconocido"]
+
+    n_subdivididas = _subdividir_por_mobiliario(zonas, u, vocab)
 
     # --- zonas inferidas por agrupamiento de mobiliario sin zona
     libres = [h for h in hosts if not h.get("_asignado") and h["rol"] in vocab.rol_a_zona]

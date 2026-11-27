@@ -131,3 +131,22 @@ def test_lo_que_queda_fuera_de_los_muros_de_la_casa_no_se_convierte_en_recinto()
     assert len(sin["recintos"]) == 2                                  # antes: la casa Y el anillo exterior
     assert len(con["recintos"]) == 1 and abs(con["recintos"][0]["area_m2"] - 7.76 * 5.76) < 1.0
     assert con["diagnostico"]["envolvente"]["tipo"] == "muros_de_doble_linea"
+
+
+def test_una_zona_abierta_grande_con_muebles_de_dos_tipos_se_divide_en_subzonas():
+    """Un salon de 12 x 6 m (72 m2) sin muros interiores, con una cama a la izquierda y un sofa a la derecha: dos subzonas que suman el salon."""
+    import pytest
+    import recintos
+    if not recintos.disponible():
+        pytest.skip("sin shapely")
+    sala = [[0, 0], [12, 0], [12, 6], [0, 6]]
+    raw = {"ok": True, "plano": "p.dwg", "unidad_m": 1.0, "insunits": 6, "n_objetos": 3, "textos": [], "poligonos": [{"capa": "0", "pts": sala}],
+           "bloques": [{"n": "Cama doble", "capa": "0", "x0": 1, "y0": 2, "x1": 3, "y1": 4}, {"n": "Sofa grande", "capa": "0", "x0": 9, "y0": 2, "x1": 11, "y1": 4}],
+           "definiciones": {}, "muros": {}, "lineas": {"segmentos": [], "truncado": False, "entidades_leidas": 0}, "lectura": {}, "contenedores_leidos": 0,
+           "elementos_en_contenedores": 0, "avisos": [], "tiempo_lectura_s": 0.1}
+    zonas = zm.construir_zonas(raw, zm.cargar_vocabulario())["zonas"]
+    subs = [z for z in zonas if z.get("subdividida_de")]
+    assert len(subs) == 2 and abs(sum(z["area_m2"] for z in subs) - 72.0) < 0.5
+    izq = min(subs, key=lambda z: z["x"])
+    assert izq["x"] < 6 < max(z["x"] for z in subs) and all(z["origen"] in ("muros", "poligono") and z["confianza"] == "baja" for z in subs)
+    assert all(z.get("contorno") for z in subs)                       # cada subzona se puede dibujar
