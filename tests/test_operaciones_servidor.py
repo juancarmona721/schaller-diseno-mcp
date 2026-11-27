@@ -303,3 +303,11 @@ def test_cuadricula_sin_filas_calcula_cuantas_caben_con_separacion_y_margen():
     assert len(plan) == 12 and not av                    # (6-1)/1.5 -> 4 columnas (3.33+1); (4-1)/1.5 -> 3 filas (2+1)
     xs = sorted({round(c["x"], 3) for c in plan})
     assert xs[0] > 0.5 - 1e-6 and xs[-1] < 5.5 + 1e-6    # centradas y dentro del margen
+
+
+def test_ubicar_en_un_recinto_se_niega_con_una_lectura_incompleta(monkeypatch):
+    """Con una lectura parcial la numeracion de los recintos es otra: no se coloca (las piezas irian a la zona equivocada)."""
+    _montar(monkeypatch)
+    monkeypatch.setattr(server, "_zonas_del_plano", lambda *a, **k: {"ok": True, "lectura_incompleta": True, "zonas": [{"n": 1, "bbox": [0, 0, 2, 2]}], "unidad_m": 1.0})
+    r = server.ubicar_varios([{"receta": "centro", "anfitrion": "recinto 1", "opciones": {"producto": "ci160"}}], ejecutar=True)
+    assert not r["ok"] and r["error"] == "lectura_incompleta"

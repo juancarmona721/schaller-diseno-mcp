@@ -677,6 +677,8 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
         res["lectura_incompleta"] = True                   # un resultado sin muros por un error de lectura NO se guarda en cache: la siguiente llamada lo reintenta
         res["lectura_con_error"] = True
         return res
+    if res.get("lectura_incompleta"):
+        return res                                         # una lectura PARCIAL tampoco se guarda: otro escaneo normal la devolveria como si fuera completa (y la numeracion de los recintos cambia)
     try:
         CARPETA_CACHE.mkdir(exist_ok=True)
         ruta.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
@@ -1036,6 +1038,9 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
         rz = _zonas_del_plano()
         if not rz.get("ok"):
             return rz
+        if rz.get("lectura_incompleta"):                   # con una lectura parcial los recintos y su numeracion NO son los del plano completo
+            return {"ok": False, "error": "lectura_incompleta", "detalle": "El escaneo del plano esta incompleto: los recintos (y su numero) cambian al completarlo, y colocar ahora "
+                    "pondria las piezas en la zona equivocada. Repite escanear_zonas con forzar_recarga=True hasta que `lectura_incompleta` desaparezca y vuelve a ubicar."}
         for k, it in enumerate(items[:len(hosts_ctx)]):
             h2 = _anfitrion_de_recinto(rz.get("zonas", []), it.get("anfitrion") if isinstance(it, dict) else None, u,
                                        bool(((it.get("opciones") or {}) if isinstance(it, dict) else {}).get("caja_completa")))
