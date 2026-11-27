@@ -692,7 +692,7 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
                       "definiciones": len(raw.get("definiciones") or {}),
                      "elementos_en_contenedores": raw.get("elementos_en_contenedores", 0)},
            "avisos": raw.get("avisos", []) + ([res["aviso_unidades"]] if res.get("aviso_unidades") else []), **res,
-           **({"lectura_incompleta": True} if (raw.get("lectura") or {}).get("contenedores_incompletos") else {})}
+           **({"lectura_incompleta": True} if ((raw.get("lectura") or {}).get("contenedores_incompletos") or (raw.get("lectura") or {}).get("lineas_modelo_incompletas")) else {})}
     if (raw.get("lectura") or {}).get("contenedores_con_error"):
         res["lectura_incompleta"] = True                   # un resultado sin muros por un error de lectura NO se guarda en cache: la siguiente llamada lo reintenta
         res["lectura_con_error"] = True

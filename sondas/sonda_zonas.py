@@ -24,7 +24,7 @@ CAPAS_PROPIAS = ("SCH_ILUMINACION", "SCH_AUDIO", "SCH_REVISION")           # lo 
 # los contornos de revision (SCH_REVISION) se releian como poligonos y textos del plano y contaminaban el escaneo siguiente (bucle de retroalimentacion)
 MAX_TEXTOS, MAX_POLI, MAX_BLOQUES, MAX_VERTICES = 8000, 6000, 8000, 200
 MAX_LINEAS, PRESUPUESTO_CONTENEDORES_S, MAX_ENTIDADES_CONTENEDOR = 15000, 40.0, 9000   # lineas y trazos de bloques contenedor (la arquitectura suele ir dentro de uno)
-MAX_LINEAS_MODELO, PRESUPUESTO_LINEAS_MODELO_S = 8000, 12.0   # lineas y lados de polilineas del ESPACIO MODELO (planos sin capas de muros ni bloque contenedor)
+MAX_LINEAS_MODELO, PRESUPUESTO_LINEAS_MODELO_S = 20000, 25.0   # lineas y lados de polilineas del ESPACIO MODELO (planos sin capas de muros ni bloque contenedor)
 PRESUPUESTO_TEXTOS_S = 20.0                      # los textos son lo mas caro de leer (varias llamadas COM cada uno)
 MAX_MUROS, PRESUPUESTO_MUROS_S = 8000, 12.0     # entidades de capas de muros que se leen, con tope de tiempo
 MAX_DEFINICIONES, MAX_ENTIDADES_DEFINICION, PRESUPUESTO_DEFINICIONES_S = 25, 300, 10.0     # definiciones sin rol que se abren, con tope de tiempo
@@ -67,6 +67,11 @@ def _seleccion(doc, nombre, dxf, capas=None):
     ft, fd = _filtro([0, 8], [dxf, capas]) if capas else _filtro([0], [dxf])
     ss.Select(5, None, None, ft, fd)
     return ss
+
+
+def _escapar_capa(nombre: str) -> str:
+    """Nombre de capa literal para un filtro de seleccion (los comodines de AutoCAD se escapan con acento grave)."""
+    return "".join("`" + c if c in "*?#@.~[]-,`" else c for c in nombre)
 
 
 def _leer_muros(doc, palabras, t0, limite, avisos):
@@ -409,22 +414,36 @@ def leer(doc, args) -> dict:
                 pass
     finally:
         ss.Delete()
-    ss = _seleccion(doc, "SS_ZONAS_LIN", "LINE")                     # lineas sueltas del modelo (muros dibujados como lineas en cualquier capa)
+    # lineas sueltas del modelo (muros dibujados como lineas en cualquier capa). Se leen POR CAPA: se saltan las de mobiliario/anotaciones (no son muros) y la capa
+    # ya se conoce, asi cada linea cuesta 2 llamadas COM (inicio y fin) en vez de 4.
+    lineas_incompletas = False
     t_lin = time.time()
     try:
-        for i in range(ss.Count):
-            if time.time() - t_lin > PRESUPUESTO_LINEAS_MODELO_S or time.time() - t0 > limite or len(lineas_modelo) >= MAX_LINEAS_MODELO:
-                avisos.append(f"Lineas del modelo: lectura parcial ({i} de {ss.Count}).")
-                break
-            try:
-                e = ss.Item(i)
-                if str(e.Layer) in CAPAS_PROPIAS:
-                    continue
-                _agregar_segmentos(e, "AcDbLine", id_ident, lineas_modelo)
-            except Exception:
-                pass
-    finally:
-        ss.Delete()
+        nombres_capas = [str(doc.Layers.Item(k).Name) for k in range(int(doc.Layers.Count))]
+    except Exception:
+        nombres_capas = []
+    saltar = vocab.capas_no_recinto
+    for capa in nombres_capas:
+        if capa in CAPAS_PROPIAS or saltar.search(capa) or vocab.capas_anotacion.search(capa):
+            continue
+        if time.time() - t_lin > PRESUPUESTO_LINEAS_MODELO_S or time.time() - t0 > limite or len(lineas_modelo) >= MAX_LINEAS_MODELO:
+            lineas_incompletas = True
+            avisos.append(f"Lineas del modelo: lectura PARCIAL (se agoto el tiempo antes de la capa '{capa}').")
+            break
+        try:
+            ss = _seleccion(doc, "SS_ZONAS_LIN", "LINE", _escapar_capa(capa))
+        except Exception:
+            continue
+        try:
+            for i in range(ss.Count):
+                try:
+                    e = ss.Item(i)
+                    a, b = e.StartPoint, e.EndPoint
+                    lineas_modelo.append([round(float(a[0]), 4), round(float(a[1]), 4), round(float(b[0]), 4), round(float(b[1]), 4), capa])
+                except Exception:
+                    pass
+        finally:
+            ss.Delete()
     candidatos_cont = []
     ss = _seleccion(doc, "SS_ZONAS_BLK", "INSERT")
     try:
@@ -572,7 +591,8 @@ def leer(doc, args) -> dict:
         avisos.append(f"Solo se abrieron las {MAX_DEFINICIONES} definiciones mas grandes de {len(orden)} bloques sin rol conocido.")
     return {"ok": True, "plano": str(doc.Name), "unidad_m": unidad_m, "insunits": ins, "n_objetos": int(doc.ModelSpace.Count),
             "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "muros": muros, "lineas": {"segmentos": lineas + lineas_modelo, "truncado": trunc_lineas, "entidades_leidas": leidas_cont, "del_modelo": len(lineas_modelo)},
-            "lectura": {"contenedores_completos": cont_completos, "contenedores_incompletos": cont_incompletos, "contenedores_con_error": cont_errores}, "contenedores_leidos": len(contenedores),
+            "lectura": {"contenedores_completos": cont_completos, "contenedores_incompletos": cont_incompletos, "contenedores_con_error": cont_errores,
+                        "lineas_modelo_incompletas": lineas_incompletas}, "contenedores_leidos": len(contenedores),
             "elementos_en_contenedores": dentro, "avisos": avisos, "tiempo_lectura_s": round(time.time() - t0, 2)}
 
 
