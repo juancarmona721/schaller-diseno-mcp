@@ -41,19 +41,22 @@ def test_contorno_que_si_contiene_varios_reporta_espacio_abierto():
 
 
 def test_zonas_traen_contorno_y_centroide_dentro_del_recinto():
-    import json
-    import pathlib
+    """Un plano sintetico con un recinto cerrado a doble linea: la zona trae su contorno (para dibujarlo en AutoCAD) y el centroide cae dentro."""
+    import pytest
+    import recintos
     import server
-    ruta = pathlib.Path.home() / ".schaller-diseno" / "debug" / "lectura_casavaica.json"
-    if not ruta.is_file():
-        import pytest
-        pytest.skip("sin lectura de depuracion")
-    raw = json.loads(ruta.read_text(encoding="utf-8"))
+    if not recintos.disponible():
+        pytest.skip("sin shapely")
+    muros_, _ = _bano_con_baldosas()
+    raw = {"ok": True, "plano": "p.dwg", "unidad_m": 1.0, "insunits": 6, "n_objetos": 8, "textos": [], "poligonos": [], "bloques": [], "definiciones": {}, "muros": {},
+           "lineas": {"segmentos": [list(s) + ["PDF_Geometria"] for s in muros_ * 3], "truncado": False, "entidades_leidas": 24}, "lectura": {}, "contenedores_leidos": 1,
+           "elementos_en_contenedores": 24, "avisos": [], "tiempo_lectura_s": 0.1}
     zonas = zm.construir_zonas(raw, zm.cargar_vocabulario())["zonas"]
     con = [z for z in zonas if z.get("contorno")]
     assert con and all(len(z["contorno"]) >= 3 for z in con)
     cx, cy = server._centroide([[0, 0], [4, 0], [4, 2], [0, 2]])
     assert (cx, cy) == (2.0, 1.0)
+
 
 
 def test_poligono_dibujado_en_U_conserva_el_dibujado_y_descarta_el_reconstruido_del_hueco():
