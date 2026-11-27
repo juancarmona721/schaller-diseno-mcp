@@ -340,6 +340,7 @@ def leer(doc, args) -> dict:
     t0 = time.time()
     limite = float(args.get("tiempo_max_s") or 40)
     vocab = zonas_motor.cargar_vocabulario()
+    ignoradas = set(args.get("capas_ignorar") or [])                 # pautas del proyecto (perfil): capas que no se leen
     try:
         ins = int(reintentar(lambda: doc.GetVariable("INSUNITS")))
     except Exception:
@@ -418,7 +419,7 @@ def leer(doc, args) -> dict:
                 if on not in ("AcDbPolyline", "AcDb2dPolyline"):
                     continue
                 poli, segs_p, capa_p = _procesar_polilinea(e, on, id_ident)        # una sola lectura: poligono Y lados (con su capa)
-                if capa_p in CAPAS_PROPIAS:
+                if capa_p in CAPAS_PROPIAS or capa_p in ignoradas:
                     continue
                 if poli and len(poligonos) < MAX_POLI:
                     poligonos.append({"capa": capa_p, "pts": [[round(x, 3), round(y, 3)] for x, y in poli]})
@@ -438,7 +439,9 @@ def leer(doc, args) -> dict:
         nombres_capas = [str(doc.Layers.Item(k).Name) for k in range(int(doc.Layers.Count))]
     except Exception:
         nombres_capas = []
-    permitidas = [c for c in nombres_capas if c not in CAPAS_PROPIAS and not vocab.capas_no_recinto.search(c) and not vocab.capas_anotacion.search(c)]
+    forzadas, ignoradas = set(args.get("capas_muros") or []), set(args.get("capas_ignorar") or [])      # pautas del proyecto (perfil)
+    permitidas = [c for c in nombres_capas if c not in CAPAS_PROPIAS and c not in ignoradas
+                  and (c in forzadas or (not vocab.capas_no_recinto.search(c) and not vocab.capas_anotacion.search(c)))]
     lotes, lote, largo = [], [], 0
     for c in permitidas:
         e_ = _escapar_capa(c)

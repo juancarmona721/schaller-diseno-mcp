@@ -133,7 +133,8 @@ def slug_proyecto(nombre: str) -> str:
 def perfil_vacio() -> dict:
     # atributos_bloques: lo que el usuario ya respondio sobre un bloque y no debe volver a preguntarsele (cabecera de una cama, ancho real,
     # puntos exactos de un compartimento...). Las herramientas lo usan solas como valores por defecto.
-    return {"roles_bloques": {}, "ignorar_bloques": [], "zonas_manuales": [], "tipologia": None, "atributos_bloques": {}}
+    # capas_muros / capas_ignorar: pautas del escaneo para ESTE plano (nombres de capa exactos): las primeras se leen siempre como muros, las segundas no se leen.
+    return {"roles_bloques": {}, "ignorar_bloques": [], "zonas_manuales": [], "tipologia": None, "atributos_bloques": {}, "capas_muros": [], "capas_ignorar": []}
 
 
 def atributos_de(perfil: dict, nombre: str) -> dict:
@@ -359,7 +360,17 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
         dims.append(math.hypot(sg[2] - sg[0], sg[3] - sg[1]))
     u, aviso_unidades = unidades.unidad_efectiva(u_declarada, dims, extension=max(dims) if dims else None)
     # que lineas son muros: por el nombre de la capa y, si ninguna se llama asi, por su geometria (hipotesis de confianza baja, informada)
-    decision_muros = muros_mod.elegir(segs_nombre, lineas, vocab.capas_muros_rx, vocab.capas_no_recinto, u)
+    forz, ign = set(perfil.get("capas_muros") or []), set(perfil.get("capas_ignorar") or [])
+    rx_muros = vocab.capas_muros_rx
+    if forz or ign:                                  # pautas del proyecto: capas que SON muros aunque no se llamen asi, y capas que no se leen
+        lineas = [s for s in lineas if len(s) < 5 or s[4] not in ign]
+        base_rx = vocab.capas_muros_rx
+
+        class _MurosDelPerfil:
+            def search(self, capa):
+                return capa in forz or bool(base_rx.search(capa))
+        rx_muros = _MurosDelPerfil()
+    decision_muros = muros_mod.elegir(segs_nombre, lineas, rx_muros, vocab.capas_no_recinto, u)
     segs_muros = decision_muros["segmentos"]
     radio = RADIO_ASOCIAR_M / u
     zonas = []
@@ -368,7 +379,7 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
     polis = []
     for p in raw.get("poligonos", []):
         pts = [tuple(q) for q in p["pts"]]
-        if len(pts) < 3:
+        if len(pts) < 3 or p.get("capa") in ign:
             continue
         a_m2 = area_poligono(pts) * u * u
         if AREA_MIN_M2 <= a_m2 <= AREA_MAX_M2:

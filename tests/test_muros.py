@@ -256,3 +256,24 @@ def test_el_siguiente_paso_pide_repetir_el_escaneo_si_la_lectura_quedo_a_medias(
     monkeypatch.setattr(server.acad, "plano_crudo", lambda **k: raw)
     r = server.escanear_zonas(forzar_recarga=True)
     assert "forzar_recarga=True" in r["siguiente_paso"] and "INCOMPLETA" in r["siguiente_paso"]
+
+
+def test_pauta_del_proyecto_capa_de_muros_en_una_capa_que_el_vocabulario_descarta():
+    """Tabiques dibujados en una capa de MOBILIARIO: sin pauta no se leen como muros; con capas_muros en el perfil, si."""
+    from tests.test_recintos import caja_doble
+    segs = []
+    for i in range(4):
+        segs += caja_doble(i * 6.0, 0, i * 6.0 + 4.6, 3.6)
+    raw = raw_lineas(con_capa(segs, "MB-AMOBLAMIENTO"))
+    sin = zonas_motor.construir_zonas(raw, VOCAB)
+    assert sin["total"] == 0
+    con = zonas_motor.construir_zonas(raw, VOCAB, {"capas_muros": ["MB-AMOBLAMIENTO"]})
+    assert con["total"] == 4 and con["medidas_plano"]["muros"]["como_se_eligieron"] == "nombre_de_capa"
+
+
+def test_pauta_del_proyecto_capas_ignorar_quita_esas_lineas():
+    from tests.test_recintos import caja_doble
+    segs = con_capa(caja_doble(0, 0, 4.6, 3.6), "A-MURO") + con_capa(caja_doble(10, 10, 14.6, 13.6), "A-MURO-FUERA")
+    raw = raw_lineas(segs)
+    assert zonas_motor.construir_zonas(raw, VOCAB)["total"] == 2
+    assert zonas_motor.construir_zonas(raw, VOCAB, {"capas_ignorar": ["A-MURO-FUERA"]})["total"] == 1

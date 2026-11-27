@@ -674,7 +674,8 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
             pass
     t = _tiempos()
     raw = acad.plano_crudo(timeout_s=t["timeout_s"], timeout_lectura_s=max(t["timeout_lectura_s"], 60.0), cache_dir=CARPETA_CACHE / "contenedores",
-                           ignorar_cache_bloque=bool(forzar), progreso=_RAIZ_USUARIO / "debug" / "progreso_lectura.json")
+                           ignorar_cache_bloque=bool(forzar), progreso=_RAIZ_USUARIO / "debug" / "progreso_lectura.json",
+                           capas_muros=perfil.get("capas_muros"), capas_ignorar=perfil.get("capas_ignorar"))
     if not raw.get("ok"):
         return raw
     if _ajustes().get("guardar_lectura"):                  # depuracion (opt-in): la lectura cruda queda en el PC del usuario para analizarla sin AutoCAD
@@ -768,7 +769,7 @@ def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = F
 @mcp.tool()
 def perfil_proyecto(accion: str = "ver", bloque: str | None = None, rol: str | None = None, nombre: str | None = None,
                     tipo: str | None = None, x: float | None = None, y: float | None = None, tipologia: str | None = None,
-                    atributos: dict | None = None) -> dict:
+                    atributos: dict | None = None, capas: list[str] | None = None) -> dict:
     """Perfil del PROYECTO ACTIVO: lo que es propio de este plano y el escaner no puede adivinar. Solo escribe un JSON local (perfiles/),
     no toca el dibujo. Acciones:
     - 'ver': muestra el perfil y los roles disponibles.
@@ -776,6 +777,9 @@ def perfil_proyecto(accion: str = "ver", bloque: str | None = None, rol: str | N
     - 'ignorar': bloque -> el escaner lo descarta (puertas, vegetacion, marcos...).
     - 'zona': nombre + tipo + x + y -> agrega una zona manual (ej. un espacio sin texto ni poligono).
     - 'tipologia': tipologia -> fija el tipo de proyecto (vivienda, oficina, hotel, comercial, restaurante, salud, educacion, industrial).
+    - 'capas_muros': capas=[nombres exactos de capa] -> en este plano esas capas SON MUROS (aunque no se llamen asi, p. ej. tabiques dibujados en una capa de
+      mobiliario); el escaneo las lee siempre. capas=[] las quita. Usa inventario_plano para ver las capas.
+    - 'capas_ignorar': capas=[...] -> esas capas no se leen (cotas, marcos de hoja, arquitectura de otros pisos o lo que este fuera de la casa). Despues: escanear_zonas(forzar_recarga=True).
     - 'atributos': bloque + atributos={...} -> RECUERDA lo que el usuario ya respondio sobre un bloque para no volver a preguntarlo
       (cabecera "N"/"S"/"E"/"O" de una cama, ancho_cama en m, filas, puntos [[x,y],...] exactos, etc.). Se fusiona con lo existente; un valor
       null borra esa clave; atributos={} borra todos los del bloque. escanear_zonas los devuelve en cada mueble y ubicar_en_anfitrion
@@ -827,12 +831,16 @@ def perfil_proyecto(accion: str = "ver", bloque: str | None = None, rol: str | N
                 guardados[clave] = actuales
             else:
                 guardados.pop(clave, None)
+    elif accion in ("capas_muros", "capas_ignorar"):
+        if capas is None or not isinstance(capas, list):
+            return {"ok": False, "error": "faltan_capas", "detalle": "Indica capas=[...] con los nombres exactos de capa (lista vacia para quitarlas)."}
+        perfil["capas_muros" if accion == "capas_muros" else "capas_ignorar"] = sorted({str(c) for c in capas if str(c).strip()})
     elif accion == "tipologia":
         if tipologia not in VOCAB.tipologias:
             return {"ok": False, "error": "tipologia_desconocida", "detalle": f"Opciones: {', '.join(VOCAB.tipologias)}."}
         perfil["tipologia"] = tipologia
     else:
-        return {"ok": False, "error": "accion_desconocida", "detalle": "Acciones: ver, rol, ignorar, zona, atributos, tipologia."}
+        return {"ok": False, "error": "accion_desconocida", "detalle": "Acciones: ver, rol, ignorar, zona, atributos, capas_muros, capas_ignorar, tipologia."}
     zonas_motor.guardar_perfil(CARPETA_PERFILES, dibujo, perfil)
     return {"ok": True, "perfil": perfil, "aviso": "Perfil guardado. Vuelve a llamar escanear_zonas: la cache se renueva sola."}
 

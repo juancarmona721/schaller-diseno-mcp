@@ -326,3 +326,14 @@ def test_dibujar_solo_numeros_no_manda_contornos_y_pone_la_etiqueta_dentro_de_la
     assert all(medidas._en_poligono(d["cx"], d["cy"], [tuple(p) for p in z["contorno"]]) for d, z in zip(capturado["contornos"], zonas))   # el 1 es una L: su centroide cae FUERA
     server.dibujar_recintos_revision(ejecutar=True)
     assert capturado["sin_contorno"] is False and capturado["contornos"][0]["etiqueta"] == "1: 64 m2"
+
+
+def test_perfil_proyecto_guarda_las_pautas_de_capas(monkeypatch):
+    monkeypatch.setattr(server.acad, "estado", lambda **k: {"ok": True, "dibujo_activo": "Plano_X.dwg"})
+    r = server.perfil_proyecto(accion="capas_muros", capas=["MB-AMOBLAMIENTO", "tabiques", "tabiques"])
+    assert r["ok"] and server.zonas_motor.cargar_perfil(server.CARPETA_PERFILES, "Plano_X.dwg")["capas_muros"] == ["MB-AMOBLAMIENTO", "tabiques"]
+    server.perfil_proyecto(accion="capas_ignorar", capas=["ROTULO"])
+    assert server.zonas_motor.cargar_perfil(server.CARPETA_PERFILES, "Plano_X.dwg")["capas_ignorar"] == ["ROTULO"]
+    server.perfil_proyecto(accion="capas_muros", capas=[])
+    assert server.zonas_motor.cargar_perfil(server.CARPETA_PERFILES, "Plano_X.dwg")["capas_muros"] == []
+    assert server.perfil_proyecto(accion="capas_muros")["error"] == "faltan_capas"
