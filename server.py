@@ -646,6 +646,10 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
                      "elementos_en_contenedores": raw.get("elementos_en_contenedores", 0)},
            "avisos": raw.get("avisos", []) + ([res["aviso_unidades"]] if res.get("aviso_unidades") else []), **res,
            **({"lectura_incompleta": True} if (raw.get("lectura") or {}).get("contenedores_incompletos") else {})}
+    if (raw.get("lectura") or {}).get("contenedores_con_error"):
+        res["lectura_incompleta"] = True                   # un resultado sin muros por un error de lectura NO se guarda en cache: la siguiente llamada lo reintenta
+        res["lectura_con_error"] = True
+        return res
     try:
         CARPETA_CACHE.mkdir(exist_ok=True)
         ruta.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
@@ -700,6 +704,9 @@ def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = F
                                         "informa supuestos y omitidos al final. Si pidio solo CONSULTAR o evaluar: no coloques nada. "
                                         "Las zonas con candidato=true o confianza baja son HIPOTESIS (poligonos sin rotulo): usalas para decidir, pero declaralas como "
                                         "supuesto y no las presentes como confirmadas. Los muebles con rol_origen='inferido' vienen de la definicion de su bloque."}
+        if res.get("lectura_con_error"):
+            res["siguiente_paso"] += (" FALLO LA LECTURA DEL BLOQUE QUE CONTIENE EL PLANO (mira `avisos`): el resultado NO tiene muros y no es fiable. Repite escanear_zonas "
+                                      "con forzar_recarga=True; si vuelve a fallar, dile al usuario el aviso exacto y no des medidas como definitivas.")
         if res.get("lectura_incompleta"):
             res["siguiente_paso"] += (" LA LECTURA DEL INTERIOR DE UN BLOQUE QUEDO INCOMPLETA: repite escanear_zonas con forzar_recarga=True (continua donde quedo, es "
                                       "rapido) hasta que `lectura_incompleta` desaparezca, antes de dar las medidas como definitivas.")

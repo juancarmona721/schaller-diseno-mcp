@@ -401,15 +401,19 @@ def leer(doc, args) -> dict:
     # ---- un nivel dentro de bloques contenedor (arquitectura dentro de un bloque). Ademas de textos, poligonos y bloques se leen las LINEAS y trazos (abiertos
     # o cerrados) con su capa: son la materia prima de los muros cuando el plano no los trae en el espacio modelo.
     dentro, lineas, trunc_lineas, leidas_cont = 0, [], False, 0
-    cont_completos, cont_incompletos = 0, 0
+    cont_completos, cont_incompletos, cont_errores = 0, 0, 0
     t_cont = time.time()
     for ref in contenedores:
+        nombre_ref = "?"
         try:
-            defn = doc.Blocks.Item(str(ref.EffectiveName))
-            if defn.Count < 30:
+            nombre_ref = str(reintentar(lambda: ref.EffectiveName))
+            defn = reintentar(lambda: doc.Blocks.Item(nombre_ref))
+            n_defn = int(reintentar(lambda: defn.Count))
+            if n_defn < 30:
+                avisos.append(f"Bloque contenedor '{nombre_ref}' omitido: tiene solo {n_defn} entidades (menos de 30).")
                 continue
             tr = Transformacion(ref)
-            total_def = min(int(defn.Count), MAX_ENTIDADES_CONTENEDOR)
+            total_def = min(n_defn, MAX_ENTIDADES_CONTENEDOR)
             ruta_cache = _ruta_cache_contenedor(args.get("cache_dir"), doc, ref, defn)
             previo = _cargar_cache_contenedor(ruta_cache)           # lectura PROGRESIVA: lo ya leido en un escaneo anterior no se vuelve a leer
             j0 = 0
@@ -466,8 +470,10 @@ def leer(doc, args) -> dict:
                 "leidas": procesadas, "completo": completo, "dentro": dentro,
                 "textos": (previo or {}).get("textos", []) + textos[marca[0]:], "poligonos": (previo or {}).get("poligonos", []) + poligonos[marca[1]:],
                 "bloques": (previo or {}).get("bloques", []) + bloques[marca[2]:], "lineas": (previo or {}).get("lineas", []) + lineas[marca[3]:]})
-        except Exception:
-            pass
+        except Exception as ex:
+            # nunca en silencio: un contenedor que no se pudo leer deja el plano SIN muros y el resultado parece valido
+            cont_errores += 1
+            avisos.append(f"ERROR leyendo el bloque contenedor '{nombre_ref}': {type(ex).__name__}: {str(ex)[:140]}. El plano puede quedar sin muros: repite con forzar_recarga=True.")
     # ---- muros (capas con nombre de muro/tabique/pared/columna...): materia prima de los recintos por geometria
     muros = _leer_muros(doc, list(vocab.datos.get("capas_muros") or []), t0, limite, avisos)
 
@@ -497,7 +503,7 @@ def leer(doc, args) -> dict:
         avisos.append(f"Solo se abrieron las {MAX_DEFINICIONES} definiciones mas grandes de {len(orden)} bloques sin rol conocido.")
     return {"ok": True, "plano": str(doc.Name), "unidad_m": unidad_m, "insunits": ins, "n_objetos": int(doc.ModelSpace.Count),
             "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "muros": muros, "lineas": {"segmentos": lineas, "truncado": trunc_lineas, "entidades_leidas": leidas_cont},
-            "lectura": {"contenedores_completos": cont_completos, "contenedores_incompletos": cont_incompletos}, "contenedores_leidos": len(contenedores),
+            "lectura": {"contenedores_completos": cont_completos, "contenedores_incompletos": cont_incompletos, "contenedores_con_error": cont_errores}, "contenedores_leidos": len(contenedores),
             "elementos_en_contenedores": dentro, "avisos": avisos, "tiempo_lectura_s": round(time.time() - t0, 2)}
 
 
