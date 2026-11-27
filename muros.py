@@ -8,6 +8,7 @@ confianza baja y se informa (modo y capas usadas), nunca se presenta como un hec
 import math
 
 ANGULO_ORTOGONAL = 3.0           # grados: un trazo a menos de esto de 0/90 cuenta como ortogonal
+NOMBRADOS_SUFICIENTES_M = 60.0   # si las capas CON NOMBRE de muro suman menos que esto (en metros de linea), no bastan para encerrar una casa: se completan por geometria
 LARGO_MIN_M = 0.5                # un trazo "largo" (candidato a cara de muro); el ruido de un PDF (texto, hachura) son miles de trazos de 1-5 cm
 SEGMENTO_MIN_M = 0.3             # al elegir por geometria solo se usan trazos de al menos esto
 MIN_LARGOS, MIN_LONGITUD_LARGA_M, MIN_ORTOGONAL = 8, 10.0, 0.6
@@ -59,14 +60,19 @@ def elegir(segs_por_nombre: list, lineas: list, rx_muros, rx_excluir, u: float =
     estad = estadisticas_por_capa(lineas, u)
     del_contenedor = [s[:4] for s in lineas if len(s) > 4 and rx_muros.search(s[4])]
     capas_nombre = sorted({s[4] for s in lineas if len(s) > 4 and rx_muros.search(s[4])})
-    if segs_por_nombre or del_contenedor:
-        return {"segmentos": [list(s[:4]) for s in segs_por_nombre] + del_contenedor, "modo": "nombre_de_capa", "capas": capas_nombre,
-                "estadisticas": _top(estad)}
-    capas = capas_por_geometria(estad, rx_excluir)
+    por_nombre = [list(s[:4]) for s in segs_por_nombre] + del_contenedor
+    metros_nombre = sum(math.hypot(s[2] - s[0], s[3] - s[1]) for s in por_nombre) * u
+    if por_nombre and metros_nombre >= NOMBRADOS_SUFICIENTES_M:
+        return {"segmentos": por_nombre, "modo": "nombre_de_capa", "capas": capas_nombre, "estadisticas": _top(estad)}
+    capas = [c for c in capas_por_geometria(estad, rx_excluir) if c not in capas_nombre]
     if capas:
         usados = set(capas)
-        return {"segmentos": [s[:4] for s in lineas if len(s) > 4 and s[4] in usados and math.hypot(s[2] - s[0], s[3] - s[1]) * u >= SEGMENTO_MIN_M],
-                "modo": "geometria", "capas": capas, "estadisticas": _top(estad)}
+        geom = [s[:4] for s in lineas if len(s) > 4 and s[4] in usados and math.hypot(s[2] - s[0], s[3] - s[1]) * u >= SEGMENTO_MIN_M]
+        if por_nombre:                                           # pocas lineas con nombre de muro: se suman a las elegidas por geometria
+            return {"segmentos": por_nombre + geom, "modo": "nombre_y_geometria", "capas": sorted(set(capas_nombre) | usados), "estadisticas": _top(estad)}
+        return {"segmentos": geom, "modo": "geometria", "capas": capas, "estadisticas": _top(estad)}
+    if por_nombre:
+        return {"segmentos": por_nombre, "modo": "nombre_de_capa", "capas": capas_nombre, "estadisticas": _top(estad)}
     return {"segmentos": [], "modo": "ninguno", "capas": [], "estadisticas": _top(estad)}
 
 

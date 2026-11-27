@@ -84,9 +84,23 @@ def test_arquitectura_dentro_de_un_bloque_con_capas_sin_nombre_de_muro_da_recint
 
 def test_si_el_bloque_trae_capas_con_nombre_de_muro_se_usan_por_nombre():
     from tests.test_recintos import caja_doble
-    r = zonas_motor.construir_zonas(raw_lineas(con_capa(caja_doble(0, 0, 4, 3), "A-MURO") + con_capa(caja_doble(10, 10, 12, 12), "BASURA")), VOCAB)
+    nombrados = []
+    for i in range(4):                                                    # suficientes metros con nombre de muro (>= 60 m) para no completar por geometria
+        nombrados += caja_doble(i * 6.0, 0, i * 6.0 + 4.6, 3.6)
+    r = zonas_motor.construir_zonas(raw_lineas(con_capa(nombrados, "A-MURO") + con_capa(caja_doble(10, 10, 12, 12), "BASURA")), VOCAB)
     mm = r["medidas_plano"]["muros"]
     assert mm["como_se_eligieron"] == "nombre_de_capa" and mm["capas_usadas"] == ["A-MURO"] and "aviso" not in mm
+
+
+def test_con_pocos_muros_con_nombre_se_completan_por_geometria_y_se_dice():
+    from tests.test_recintos import caja_doble
+    segs = con_capa(caja_doble(0, 0, 4, 3), "A-MURO")                      # solo ~28 m con nombre de muro
+    for i in range(1, 4):
+        segs += con_capa(caja_doble(i * 6.0, 0, i * 6.0 + 4.6, 3.6), "X-PLANO 2")
+    r = zonas_motor.construir_zonas(raw_lineas(segs), VOCAB)
+    mm = r["medidas_plano"]["muros"]
+    assert mm["como_se_eligieron"] == "nombre_y_geometria" and set(mm["capas_usadas"]) == {"A-MURO", "X-PLANO 2"}
+    assert r["total"] == 4
 
 
 def test_el_resultado_siempre_dice_que_lineas_vio_aunque_no_las_use():

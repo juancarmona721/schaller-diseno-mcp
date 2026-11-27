@@ -24,6 +24,7 @@ CAPAS_PROPIAS = ("SCH_ILUMINACION", "SCH_AUDIO", "SCH_REVISION")           # lo 
 # los contornos de revision (SCH_REVISION) se releian como poligonos y textos del plano y contaminaban el escaneo siguiente (bucle de retroalimentacion)
 MAX_TEXTOS, MAX_POLI, MAX_BLOQUES, MAX_VERTICES = 8000, 6000, 8000, 200
 MAX_LINEAS, PRESUPUESTO_CONTENEDORES_S, MAX_ENTIDADES_CONTENEDOR = 15000, 40.0, 9000   # lineas y trazos de bloques contenedor (la arquitectura suele ir dentro de uno)
+MAX_LINEAS_MODELO, PRESUPUESTO_LINEAS_MODELO_S = 8000, 12.0   # lineas y lados de polilineas del ESPACIO MODELO (planos sin capas de muros ni bloque contenedor)
 PRESUPUESTO_TEXTOS_S = 20.0                      # los textos son lo mas caro de leer (varias llamadas COM cada uno)
 MAX_MUROS, PRESUPUESTO_MUROS_S = 8000, 12.0     # entidades de capas de muros que se leen, con tope de tiempo
 MAX_DEFINICIONES, MAX_ENTIDADES_DEFINICION, PRESUPUESTO_DEFINICIONES_S = 25, 300, 10.0     # definiciones sin rol que se abren, con tope de tiempo
@@ -385,6 +386,7 @@ def leer(doc, args) -> dict:
                 pass
     finally:
         ss.Delete()
+    lineas_modelo = []
     ss = _seleccion(doc, "SS_ZONAS_POLI", "LWPOLYLINE,POLYLINE")
     try:
         for i in range(ss.Count):
@@ -392,7 +394,33 @@ def leer(doc, args) -> dict:
                 avisos.append("Tiempo agotado leyendo polilineas: lectura parcial.")
                 break
             try:
-                agregar_poligono(ss.Item(i), id_ident)
+                e = ss.Item(i)
+                on = str(e.ObjectName)
+                if on not in ("AcDbPolyline", "AcDb2dPolyline"):
+                    continue
+                poli, segs_p, capa_p = _procesar_polilinea(e, on, id_ident)        # una sola lectura: poligono Y lados (con su capa)
+                if capa_p in CAPAS_PROPIAS:
+                    continue
+                if poli and len(poligonos) < MAX_POLI:
+                    poligonos.append({"capa": capa_p, "pts": [[round(x, 3), round(y, 3)] for x, y in poli]})
+                if len(lineas_modelo) < MAX_LINEAS_MODELO:
+                    lineas_modelo.extend(segs_p)
+            except Exception:
+                pass
+    finally:
+        ss.Delete()
+    ss = _seleccion(doc, "SS_ZONAS_LIN", "LINE")                     # lineas sueltas del modelo (muros dibujados como lineas en cualquier capa)
+    t_lin = time.time()
+    try:
+        for i in range(ss.Count):
+            if time.time() - t_lin > PRESUPUESTO_LINEAS_MODELO_S or time.time() - t0 > limite or len(lineas_modelo) >= MAX_LINEAS_MODELO:
+                avisos.append(f"Lineas del modelo: lectura parcial ({i} de {ss.Count}).")
+                break
+            try:
+                e = ss.Item(i)
+                if str(e.Layer) in CAPAS_PROPIAS:
+                    continue
+                _agregar_segmentos(e, "AcDbLine", id_ident, lineas_modelo)
             except Exception:
                 pass
     finally:
@@ -543,7 +571,7 @@ def leer(doc, args) -> dict:
     if len(orden) > MAX_DEFINICIONES:
         avisos.append(f"Solo se abrieron las {MAX_DEFINICIONES} definiciones mas grandes de {len(orden)} bloques sin rol conocido.")
     return {"ok": True, "plano": str(doc.Name), "unidad_m": unidad_m, "insunits": ins, "n_objetos": int(doc.ModelSpace.Count),
-            "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "muros": muros, "lineas": {"segmentos": lineas, "truncado": trunc_lineas, "entidades_leidas": leidas_cont},
+            "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "muros": muros, "lineas": {"segmentos": lineas + lineas_modelo, "truncado": trunc_lineas, "entidades_leidas": leidas_cont, "del_modelo": len(lineas_modelo)},
             "lectura": {"contenedores_completos": cont_completos, "contenedores_incompletos": cont_incompletos, "contenedores_con_error": cont_errores}, "contenedores_leidos": len(contenedores),
             "elementos_en_contenedores": dentro, "avisos": avisos, "tiempo_lectura_s": round(time.time() - t0, 2)}
 

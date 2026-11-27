@@ -296,7 +296,7 @@ def _medidas_plano(u, vistas, muros, segs, zonas, reconstruccion, decision=None,
                      "capas": (muros or {}).get("capas", {}), "entidades_en_capas_de_muros": (muros or {}).get("entidades", 0), "truncado": bool((muros or {}).get("truncado")),
                      "como_se_eligieron": (decision or {}).get("modo", "ninguno"), "capas_usadas": (decision or {}).get("capas", []),
                      **({"aviso": "Ninguna capa se llama como un muro: se eligieron por su geometria (trazos largos y ortogonales). Es una hipotesis de confianza baja."}
-                        if (decision or {}).get("modo") == "geometria" else {})},
+                        if (decision or {}).get("modo") in ("geometria", "nombre_y_geometria") else {})},
            "lineas_por_capa": (decision or {}).get("estadisticas", {}),
            "recintos": {"total": len(zonas), "por_origen": cuenta, "con_medidas": len(areas), "area_total_m2": round(sum(areas), 1),
                         "area_media_m2": round(sum(areas) / len(areas), 1) if areas else None}}
