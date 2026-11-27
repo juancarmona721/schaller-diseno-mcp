@@ -287,10 +287,20 @@ def _dibujar_contornos(doc, args, ejecutar, mk, mkd):
         plano = []
         for x, y in pts:
             plano += [float(x), float(y)]
+        cx, cy = float(c["cx"]), float(c["cy"])
+        if args.get("sin_contorno"):                                 # solo el numero de la zona: sin lineas
+            t = doc.ModelSpace.AddText(str(c["etiqueta"]), mk(cx, cy, 0), alto)
+            t.Layer = capa
+            try:
+                t.Alignment = 10
+                t.TextAlignmentPoint = mk(cx, cy, 0)
+            except Exception:
+                pass
+            handles.append(t.Handle)
+            continue
         pl = doc.ModelSpace.AddLightWeightPolyline(mkd(plano))
         pl.Closed = True
         pl.Layer = capa
-        cx, cy = float(c["cx"]), float(c["cy"])
         t = doc.ModelSpace.AddText(str(c["etiqueta"]), mk(cx, cy, 0), alto)
         t.Layer = capa
         try:

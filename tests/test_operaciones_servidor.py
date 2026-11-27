@@ -311,3 +311,18 @@ def test_ubicar_en_un_recinto_se_niega_con_una_lectura_incompleta(monkeypatch):
     monkeypatch.setattr(server, "_zonas_del_plano", lambda *a, **k: {"ok": True, "lectura_incompleta": True, "zonas": [{"n": 1, "bbox": [0, 0, 2, 2]}], "unidad_m": 1.0})
     r = server.ubicar_varios([{"receta": "centro", "anfitrion": "recinto 1", "opciones": {"producto": "ci160"}}], ejecutar=True)
     assert not r["ok"] and r["error"] == "lectura_incompleta"
+
+
+def test_dibujar_solo_numeros_no_manda_contornos_y_pone_la_etiqueta_dentro_de_la_zona(monkeypatch):
+    import medidas
+    L = [[0, 0], [10, 0], [10, 4], [4, 4], [4, 10], [0, 10]]
+    zonas = [{"n": 1, "bbox": [0, 0, 10, 10], "area_m2": 64.0, "contorno": L, "medidas": {"area_m2": 64.0}},
+             {"n": 2, "bbox": [20, 0, 24, 3], "area_m2": 12.0, "contorno": [[20, 0], [24, 0], [24, 3], [20, 3]], "medidas": {"area_m2": 12.0}}]
+    monkeypatch.setattr(server, "_zonas_del_plano", lambda *a, **k: {"ok": True, "zonas": zonas, "unidad_m": 1.0})
+    monkeypatch.setattr(server, "_escribir", lambda args: (capturado.update(args), {"ok": True})[1])
+    capturado = {}
+    server.dibujar_recintos_revision(ejecutar=True, contornos=False, mostrar_area=False)
+    assert capturado["sin_contorno"] is True and [d["etiqueta"] for d in capturado["contornos"]] == ["1", "2"]
+    assert all(medidas._en_poligono(d["cx"], d["cy"], [tuple(p) for p in z["contorno"]]) for d, z in zip(capturado["contornos"], zonas))   # el 1 es una L: su centroide cae FUERA
+    server.dibujar_recintos_revision(ejecutar=True)
+    assert capturado["sin_contorno"] is False and capturado["contornos"][0]["etiqueta"] == "1: 64 m2"

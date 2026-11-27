@@ -552,6 +552,15 @@ def _a_marco_global(plan: list, marco: dict) -> list:
     return sal
 
 
+def _punto_de_etiqueta(pts) -> tuple:
+    """Donde poner el numero de una zona: su centroide si cae DENTRO; si no (zonas en L o U), el centro del mayor rectangulo inscrito."""
+    c = _centroide(pts)
+    if medidas._en_poligono(c[0], c[1], [tuple(p) for p in pts]):
+        return c
+    q = medidas.rectangulo_inscrito([tuple(p) for p in pts])
+    return ((q["x0"] + q["x1"]) / 2, (q["y0"] + q["y1"]) / 2) if q else c
+
+
 def _centroide(pts) -> tuple:
     """Centroide de un poligono (formula del area); si es degenerado, el centro de su caja."""
     a = cx = cy = 0.0
@@ -571,12 +580,13 @@ def _centroide(pts) -> tuple:
 @mcp.tool()
 @_serializado
 def dibujar_recintos_revision(ejecutar: bool = False, capa: str = "SCH_REVISION", altura_texto_m: float = 0.25, reemplazar: bool = True,
-                              confirmacion: str | int | None = None) -> dict:
+                              confirmacion: str | int | None = None, contornos: bool = True, mostrar_area: bool = True) -> dict:
     """MODIFICA EL DIBUJO (solo agrega, en UNA capa propia): dibuja el CONTORNO REAL de cada recinto que midio el ultimo escaneo, con su numero y
     su area, para que el usuario compare lo medido con su plano a simple vista. No dibuja cajas aproximadas y no toca nada mas.
 
     Usa el escaneo del plano activo (lo hace si no hay uno en cache). Los numeros coinciden con el orden de `zonas` de escanear_zonas
     (1 = la primera zona con contorno). Con reemplazar=True (por defecto) quita antes lo que haya en ESA capa, asi se puede repetir sin duplicar.
+    contornos=False dibuja SOLO LOS NUMEROS de las zonas (sin lineas rojas), colocados dentro de cada zona; mostrar_area=False deja solo el numero (sin m2).
     Es una herramienta de REVISION: no es parte del diseno. Para quitarla: borra la capa o usa ejecutar con capa vacia desde AutoCAD (PURGE).
     Por defecto es un ENSAYO; con ejecutar=True dibuja. En planos grandes exige `confirmacion` (CANDADO).
     """
@@ -586,20 +596,20 @@ def dibujar_recintos_revision(ejecutar: bool = False, capa: str = "SCH_REVISION"
     if not res.get("ok"):
         return res
     u = float(res.get("unidad_m") or 1.0)
-    contornos, sin_contorno = [], 0
+    dibujos, sin_contorno = [], 0
     for i, z in enumerate(res.get("zonas", []), 1):
         pts = z.get("contorno")
         if not pts or len(pts) < 3:
             sin_contorno += 1
             continue
-        cx, cy = _centroide(pts)
+        cx, cy = _punto_de_etiqueta(pts)
         area = (z.get("medidas") or {}).get("area_m2") or z.get("area_m2")
-        contornos.append({"pts": pts, "cx": cx, "cy": cy, "etiqueta": f"{i}: {area:g} m2" if area else str(i)})
-    if not contornos:
+        dibujos.append({"pts": pts, "cx": cx, "cy": cy, "etiqueta": f"{i}: {area:g} m2" if (area and mostrar_area) else str(z.get("n", i))})
+    if not dibujos:
         return {"ok": False, "error": "sin_contornos", "detalle": "El escaneo no trae recintos con contorno que dibujar (zonas sin poligono)."}
     if not 0 < float(altura_texto_m) <= 5:
         return {"ok": False, "error": "altura_invalida", "detalle": "altura_texto_m debe estar entre 0 y 5 metros."}
-    r = _escribir({"op": "contornos", "contornos": contornos, "capa": str(capa or "SCH_REVISION"), "altura_texto": float(altura_texto_m) / u,
+    r = _escribir({"op": "contornos", "contornos": dibujos, "sin_contorno": not contornos, "capa": str(capa or "SCH_REVISION"), "altura_texto": float(altura_texto_m) / u,
                    "reemplazar": bool(reemplazar), "ejecutar": bool(ejecutar), "confirmacion": confirmacion})
     aviso = {} if ejecutar or not r.get("ok") else {"aviso": "ENSAYO: no se modifico nada. Repite con ejecutar=True."}
     return {**r, **aviso, "zonas_sin_contorno": sin_contorno,
