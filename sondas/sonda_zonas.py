@@ -374,6 +374,7 @@ def leer(doc, args) -> dict:
                 pass
     finally:
         ss.Delete()
+    candidatos_cont = []
     ss = _seleccion(doc, "SS_ZONAS_BLK", "INSERT")
     try:
         n_inserts = ss.Count
@@ -384,8 +385,8 @@ def leer(doc, args) -> dict:
             try:
                 e = ss.Item(i)
                 nombre = str(e.EffectiveName)
-                if vocab.contenedores.search(nombre) and len(contenedores) < 3:
-                    contenedores.append(e)
+                if vocab.contenedores.search(nombre) and str(e.Layer) not in CAPAS_PROPIAS and len(candidatos_cont) < 60:
+                    candidatos_cont.append((e, nombre))        # NO se decide aqui: "Architectural" (luminarias) tambien casa con el vocabulario
                 agregar_bloque(e, id_ident)
                 if vocab.capas_rotulos.search(str(e.Layer)) and getattr(e, "HasAttributes", False):
                     for at in e.GetAttributes():           # rotulos de ambiente guardados como atributos
@@ -398,6 +399,17 @@ def leer(doc, args) -> dict:
     finally:
         ss.Delete()
 
+    # contenedores: de los bloques cuyo nombre casa con el vocabulario, los de MAS entidades (el plano es el bloque grande; una luminaria llamada
+    # "Architectural" tiene 7). Antes se tomaban los 3 primeros por orden y unas piezas colocadas ocupaban los cupos y dejaban el plano sin leer.
+    pesos = {}
+    for e_, n_ in candidatos_cont:
+        if n_ not in pesos:
+            try:
+                pesos[n_] = int(reintentar(lambda: doc.Blocks.Item(n_).Count))
+            except Exception:
+                pesos[n_] = 0
+    candidatos_cont.sort(key=lambda c: -pesos.get(c[1], 0))
+    contenedores = [e_ for e_, n_ in candidatos_cont if pesos.get(n_, 0) >= 30][:3]
     # ---- un nivel dentro de bloques contenedor (arquitectura dentro de un bloque). Ademas de textos, poligonos y bloques se leen las LINEAS y trazos (abiertos
     # o cerrados) con su capa: son la materia prima de los muros cuando el plano no los trae en el espacio modelo.
     dentro, lineas, trunc_lineas, leidas_cont = 0, [], False, 0
