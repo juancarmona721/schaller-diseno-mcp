@@ -579,6 +579,16 @@ def _centroide(pts) -> tuple:
 
 @mcp.tool()
 @_serializado
+def inventario_plano() -> dict:
+    """SOLO LECTURA: que hay en el plano ACTIVO por capa y tipo de objeto (lineas, polilineas, rellenos/achurados, solidos, bloques, textos), los rellenos mas grandes
+    y las polilineas con grosor. Sirve para entender COMO esta dibujada la arquitectura de un plano nuevo (muros como lineas, como rellenos grises, como polilineas
+    gruesas...) cuando el escaneo no encuentra muros. No modifica nada. Devuelvelo resumido al usuario: las capas con mas objetos y los muros."""
+    t = _tiempos()
+    return acad.inventario_plano(timeout_s=t["timeout_s"], timeout_lectura_s=max(t["timeout_lectura_s"], 60.0))
+
+
+@mcp.tool()
+@_serializado
 def dibujar_recintos_revision(ejecutar: bool = False, capa: str = "SCH_REVISION", altura_texto_m: float = 0.25, reemplazar: bool = True,
                               confirmacion: str | int | None = None, contornos: bool = True, mostrar_area: bool = True) -> dict:
     """MODIFICA EL DIBUJO (solo agrega, en UNA capa propia): dibuja el CONTORNO REAL de cada recinto que midio el ultimo escaneo, con su numero y

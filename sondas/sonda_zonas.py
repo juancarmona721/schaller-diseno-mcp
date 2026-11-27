@@ -548,6 +548,59 @@ def leer(doc, args) -> dict:
             "elementos_en_contenedores": dentro, "avisos": avisos, "tiempo_lectura_s": round(time.time() - t0, 2)}
 
 
+def inventario(doc, args) -> dict:
+    """SOLO LECTURA: que hay en el espacio modelo, por capa y tipo de objeto, y como estan dibujados los posibles MUROS (rellenos/achurados, solidos, polilineas con
+    grosor, lineas). Sirve para decidir como leer la arquitectura de un plano nuevo."""
+    t0 = time.time()
+    limite = float(args.get("tiempo_max_s") or 40)
+    maximo = int(args.get("max_entidades") or 20000)
+    ms = doc.ModelSpace
+    total = int(reintentar(lambda: ms.Count))
+    capas, rellenos, anchas = {}, [], {}
+    leidas = 0
+    for i in range(min(total, maximo)):
+        if time.time() - t0 > limite:
+            break
+        try:
+            e = ms.Item(i)
+            on = str(e.ObjectName).replace("AcDb", "")
+            capa = str(e.Layer)
+        except Exception:
+            continue
+        leidas += 1
+        d = capas.setdefault(capa, {})
+        d[on] = d.get(on, 0) + 1
+        try:
+            if on == "Hatch":
+                a, b = e.GetBoundingBox()
+                rellenos.append({"capa": capa, "patron": str(e.PatternName), "area": round(float(e.Area), 3), "caja": [round(float(a[0]), 2), round(float(a[1]), 2),
+                                                                                                                     round(float(b[0]), 2), round(float(b[1]), 2)],
+                                 "bucles": int(e.NumberOfLoops), "asociativo": bool(e.AssociativeHatch)})
+            elif on in ("Polyline", "2dPolyline"):
+                w = float(e.ConstantWidth)
+                if w > 0:
+                    anchas.setdefault(capa, []).append(round(w, 3))
+        except Exception:
+            pass
+    rellenos.sort(key=lambda r: -r["area"])
+    return {"ok": True, "plano": str(doc.Name), "unidad_m": UNIDAD_A_METROS.get(int(reintentar(lambda: doc.GetVariable("INSUNITS"))), 1.0),
+            "entidades_modelo": total, "entidades_leidas": leidas, "completo": leidas >= total, "capas": capas,
+            "rellenos": {"total": len(rellenos), "por_capa_y_patron": _agrupar(rellenos), "mayores": rellenos[:12]},
+            "polilineas_con_grosor": {c: {"n": len(v), "grosor_tipico": sorted(v)[len(v) // 2]} for c, v in anchas.items()},
+            "tiempo_s": round(time.time() - t0, 2)}
+
+
+def _agrupar(rellenos):
+    g = {}
+    for r in rellenos:
+        k = f"{r['capa']} | {r['patron']}"
+        d = g.setdefault(k, {"n": 0, "area_total": 0.0, "asociativos": 0})
+        d["n"] += 1
+        d["area_total"] = round(d["area_total"] + r["area"], 2)
+        d["asociativos"] += 1 if r["asociativo"] else 0
+    return g
+
+
 def main() -> dict:
     args = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
     try:
@@ -570,7 +623,7 @@ def main() -> dict:
     except Exception:
         return {"ok": False, "error": "autocad_no_abierto", "detalle": "No encontre AutoCAD abierto con un dibujo activo."}
     try:
-        return reintentar(lambda: leer(doc, args))
+        return reintentar(lambda: (inventario if args.get("modo") == "inventario" else leer)(doc, args))
     except Exception as e:
         return {"ok": False, "error": "fallo_lectura", "detalle": f"{type(e).__name__}: {e}"}
 

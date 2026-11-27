@@ -170,6 +170,15 @@ def plano_crudo(timeout_s: float = 10.0, timeout_lectura_s: float = 60.0, cache_
                    mensaje_timeout=f"La lectura del plano no termino en {timeout_lectura_s:g} s (plano muy grande o AutoCAD ocupado).")
 
 
+def inventario_plano(timeout_s: float = 10.0, timeout_lectura_s: float = 60.0) -> dict:
+    """Que hay en el espacio modelo por capa y tipo de objeto (rellenos, solidos, polilineas con grosor...)."""
+    previo = estado(timeout_s)
+    if not previo.get("ok"):
+        return previo
+    return _correr(PROBE_ZONAS, timeout_lectura_s, [json.dumps({"modo": "inventario", "tiempo_max_s": max(5.0, timeout_lectura_s - 15)})],
+                   mensaje_timeout=f"El inventario no termino en {timeout_lectura_s:g} s.")
+
+
 def extraer_patrones(destino_contiene=None, timeout_s: float = 10.0, timeout_lectura_s: float = 60.0) -> dict:
     """Mina y extrae patrones de diseno e intenciones de un plano terminado."""
     previo = estado(timeout_s)
