@@ -205,6 +205,13 @@ def ejecutar_op(doc, args, mk=mk_variant, mkd=None):
         return {**base, **_dibujar_espacios(doc, args, ejecutar, mk, mkd)}
     if op == "contornos":
         return {**base, **_dibujar_contornos(doc, args, ejecutar, mk, mkd)}
+    if op == "quitar_capa_revision":
+        capa = str(args["capa"])
+        if not capa.upper().startswith("SCH_REVISION"):                 # SOLO la capa de revision: nunca otra
+            return {"ok": False, "error": "capa_no_permitida", "detalle": "Solo se pueden quitar capas SCH_REVISION*."}
+        existia = existe(doc.Layers, capa)
+        quitados = _borrar_capa_propia(doc, capa) if (existia and ejecutar) else 0
+        return {**base, "capa": capa, "capa_existia": existia, "quitados": quitados}
     return {"ok": False, "error": "operacion_desconocida", "detalle": str(op)}
 
 

@@ -589,6 +589,17 @@ def inventario_plano() -> dict:
 
 @mcp.tool()
 @_serializado
+def quitar_marcas_de_revision(ejecutar: bool = False, capa: str = "SCH_REVISION", confirmacion: str | int | None = None) -> dict:
+    """MODIFICA EL DIBUJO (solo BORRA lo que dibujo dibujar_recintos_revision): quita los contornos y numeros de revision de las zonas (capa SCH_REVISION). No toca el
+    diseno, las luminarias, el plano ni ninguna otra capa. Por defecto es un ensayo (dice cuantas marcas hay); con ejecutar=True las quita. Pide confirmacion al usuario
+    antes de ejecutar (es un borrado). En planos grandes exige `confirmacion` (CANDADO)."""
+    if (off := _escritura_off()):
+        return off
+    return _escribir({"op": "quitar_capa_revision", "capa": str(capa or "SCH_REVISION"), "ejecutar": bool(ejecutar), "confirmacion": confirmacion})
+
+
+@mcp.tool()
+@_serializado
 def dibujar_recintos_revision(ejecutar: bool = False, capa: str = "SCH_REVISION", altura_texto_m: float = 0.25, reemplazar: bool = True,
                               confirmacion: str | int | None = None, contornos: bool = True, mostrar_area: bool = True) -> dict:
     """MODIFICA EL DIBUJO (solo agrega, en UNA capa propia): dibuja el CONTORNO REAL de cada recinto que midio el ultimo escaneo, con su numero y

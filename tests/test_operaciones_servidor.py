@@ -337,3 +337,11 @@ def test_perfil_proyecto_guarda_las_pautas_de_capas(monkeypatch):
     server.perfil_proyecto(accion="capas_muros", capas=[])
     assert server.zonas_motor.cargar_perfil(server.CARPETA_PERFILES, "Plano_X.dwg")["capas_muros"] == []
     assert server.perfil_proyecto(accion="capas_muros")["error"] == "faltan_capas"
+
+
+def test_quitar_marcas_de_revision_solo_acepta_la_capa_de_revision(monkeypatch):
+    vistos = []
+    monkeypatch.setattr(server, "_escribir", lambda args: (vistos.append(args), {"ok": True})[1])
+    server.quitar_marcas_de_revision(ejecutar=True)
+    assert vistos[-1]["op"] == "quitar_capa_revision" and vistos[-1]["capa"] == "SCH_REVISION" and vistos[-1]["ejecutar"] is True
+    assert "dibujar_recintos_revision" in server.guia_diseno.FLUJO and "quitar_marcas_de_revision" in server.guia_diseno.FLUJO
