@@ -627,7 +627,8 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
         except (OSError, ValueError):
             pass
     t = _tiempos()
-    raw = acad.plano_crudo(timeout_s=t["timeout_s"], timeout_lectura_s=max(t["timeout_lectura_s"], 60.0), cache_dir=CARPETA_CACHE / "contenedores")
+    raw = acad.plano_crudo(timeout_s=t["timeout_s"], timeout_lectura_s=max(t["timeout_lectura_s"], 60.0), cache_dir=CARPETA_CACHE / "contenedores",
+                           ignorar_cache_bloque=bool(forzar))
     if not raw.get("ok"):
         return raw
     if _ajustes().get("guardar_lectura"):                  # depuracion (opt-in): la lectura cruda queda en el PC del usuario para analizarla sin AutoCAD
@@ -688,7 +689,8 @@ def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = F
     PERFIL del proyecto; y, sin textos ni poligonos, zonas inferidas por agrupamiento (confianza baja).
     Devuelve zonas (nombre, tipo_espacio, x, y, bbox, area_m2, origen, confianza, muebles), la tipologia detectada del proyecto y
     `sugerencias_roles`: bloques con nombre anonimo que conviene clasificar con perfil_proyecto(accion='rol').
-    Cache por dibujo; forzar_recarga=True si cambiaste el plano sin cambiar su numero de objetos. tipologia fuerza el tipo de proyecto.
+    Cache por dibujo. forzar_recarga=True RELEE Y MIDE TODO DE NUEVO, tambien el interior del bloque que contiene el plano (tarda ~30-40 s en un plano importado
+    de PDF): usalo SOLO si el usuario modifico el plano (lineas, muros) y quiere medidas nuevas; sin forzar, un escaneo repetido tarda ~1 s. tipologia fuerza el tipo de proyecto.
     `vistas`: grupos de geometria separados dentro del dibujo (p. ej. dos plantas lado a lado); cada zona trae su `vista`. Una vista NO es un piso:
     no asumas que la de la izquierda es la planta baja; el nivel solo se nombra si un texto cercano lo dice (`nombre`).
     En planos reales los nombres de espacios y bloques pueden ser datos del cliente: no los muestres en el chat sin necesidad.

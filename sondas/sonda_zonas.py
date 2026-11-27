@@ -233,6 +233,29 @@ def _ruta_cache_contenedor(cache_dir, doc, ref, defn):
         return None
 
 
+HUELLA_MUESTRAS, HUELLA_ULTIMAS = 80, 20
+
+
+def _huella_contenedor(defn, total):
+    """Huella barata (~1 s) del INTERIOR de un bloque: capa y coordenadas de 80 entidades repartidas y de las 20 ultimas. La cache se invalida si cambia. Es una
+    red de seguridad, no una garantia: una edicion de pocas lineas puede no estar en la muestra; por eso forzar_recarga=True RELEE el bloque entero."""
+    h = hashlib.sha1()
+    n = min(HUELLA_MUESTRAS, total)
+    indices = sorted({(k * total) // n for k in range(n)} | set(range(max(0, total - HUELLA_ULTIMAS), total)))
+    for j in indices:
+        try:
+            sub = defn.Item(j)
+            on = str(sub.ObjectName)
+            h.update(f"{j}|{on}|{sub.Layer}".encode("utf-8"))
+            if on in ("AcDbPolyline", "AcDb2dPolyline"):
+                h.update(repr([round(float(v), 3) for v in sub.Coordinates]).encode())
+            elif on == "AcDbLine":
+                h.update(repr([round(float(v), 3) for v in list(sub.StartPoint) + list(sub.EndPoint)]).encode())
+        except Exception:
+            h.update(b"?")
+    return h.hexdigest()[:16]
+
+
 def _cargar_cache_contenedor(ruta):
     try:
         if ruta is not None and ruta.is_file():
@@ -428,6 +451,12 @@ def leer(doc, args) -> dict:
             total_def = min(n_defn, MAX_ENTIDADES_CONTENEDOR)
             ruta_cache = _ruta_cache_contenedor(args.get("cache_dir"), doc, ref, defn)
             previo = _cargar_cache_contenedor(ruta_cache)           # lectura PROGRESIVA: lo ya leido en un escaneo anterior no se vuelve a leer
+            huella = _huella_contenedor(defn, total_def)
+            if previo and previo.get("huella") != huella:
+                previo = None                                       # el interior cambio (o la cache es de una version sin huella): se relee completo
+                avisos.append(f"El interior del bloque '{nombre_ref}' cambio desde el ultimo escaneo: se lee de nuevo completo.")
+            elif previo and args.get("ignorar_cache_bloque") and previo.get("completo"):
+                previo = None                                       # forzar_recarga: se vuelve a medir TODO (una lectura incompleta si se continua, para no reiniciar siempre)
             j0 = 0
             if previo:
                 textos.extend(previo.get("textos", []))
@@ -479,7 +508,7 @@ def leer(doc, args) -> dict:
                 avisos.append(f"Lectura PARCIAL del interior de un bloque contenedor ({procesadas} de {defn.Count} entidades). Repite el escaneo con "
                               "forzar_recarga=True: continua donde quedo y lo completa.")
             _guardar_cache_contenedor(ruta_cache, {
-                "leidas": procesadas, "completo": completo, "dentro": dentro,
+                "leidas": procesadas, "completo": completo, "dentro": dentro, "huella": huella,
                 "textos": (previo or {}).get("textos", []) + textos[marca[0]:], "poligonos": (previo or {}).get("poligonos", []) + poligonos[marca[1]:],
                 "bloques": (previo or {}).get("bloques", []) + bloques[marca[2]:], "lineas": (previo or {}).get("lineas", []) + lineas[marca[3]:]})
         except Exception as ex:
