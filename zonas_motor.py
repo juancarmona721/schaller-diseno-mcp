@@ -502,24 +502,24 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
                     mejor = p
         return mejor
 
-    # --- SOLO INTERIORES: lo que es exterior por nombre (terraza, patio, jardin...) o cae fuera del casco de la casa no se convierte en zona
+    # --- EXTERIORES: solo cuentan si estan DELIMITADOS (contorno cerrado: un balcon con muro o linea cerrada). Un exterior sin contorno (solo un rotulo, o mobiliario
+    # de afuera) no es zona. Lo exterior delimitado queda marcado con exterior=True. "Exterior" = por su nombre (terraza, patio...) o fuera del casco de la casa.
     env_pts = ((((reconstruccion or {}).get("diagnostico") or {}).get("envolvente")) or {}).get("pts")
-    excluidas, poli_excluidos = [], set()
+    excluidas = []
 
     def _dentro_de_la_casa(cx, cy, pts=None):
         if not env_pts:
-            return True                                      # sin casco fiable (no hay muros de doble linea): solo se filtra por nombre
+            return True                                      # sin casco fiable (no hay muros de doble linea): no se puede saber que esta fuera
         if punto_en_poligono(cx, cy, env_pts):
             return True
         return bool(pts) and sum(1 for q in pts if punto_en_poligono(q[0], q[1], env_pts)) * 2 >= len(pts)
 
-    def _motivo_exterior(z, poli):
+    def _es_exterior(z, poli):
         if z.get("tipo_espacio") in vocab.exteriores:
-            return "espacio exterior por su nombre (terraza, patio, jardin, balcon...)"
-        if poli is None or poli.get("origen_poli") != "muros":       # lo reconstruido desde los muros ya nace dentro del casco
-            if not _dentro_de_la_casa(z["x"], z["y"], poli["pts"] if poli else None):
-                return "fuera de la casa (fuera del casco de los muros)"
-        return None
+            return True
+        if poli is not None and poli.get("origen_poli") == "muros":      # lo reconstruido desde los muros ya nace dentro del casco
+            return False
+        return not _dentro_de_la_casa(z["x"], z["y"], poli["pts"] if poli else None)
 
     # --- zonas por texto (+ poligono)
     vistos = set()
@@ -548,22 +548,16 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
             de_muros = poli.get("origen_poli") == "muros"
             z.update(x=round((b[0] + b[2]) / 2, 3), y=round((b[1] + b[3]) / 2, 3), bbox=[round(v, 3) for v in b],
                      area_m2=round(poli["area_m2"], 2), origen="texto+muros" if de_muros else "texto+poligono", confianza="media" if de_muros else "alta")
-        motivo = _motivo_exterior(z, poli)
-        if motivo:
-            excluidas.append({"nombre": txt, "motivo": motivo, "area_m2": z["area_m2"], "x": z["x"], "y": z["y"]})
-            if poli:
-                poli_excluidos.add(id(poli))                 # su contorno tampoco vuelve a entrar como "recinto sin rotulo"
-            continue
+        if _es_exterior(z, poli):
+            if poli is None:
+                excluidas.append({"nombre": txt, "motivo": "exterior sin delimitar (solo rotulo, sin contorno cerrado)", "area_m2": None, "x": z["x"], "y": z["y"]})
+                continue
+            z["exterior"] = True                             # exterior DELIMITADO: se hace
         zonas.append(z)
 
     # --- recintos CANDIDATOS: poligonos del tamano de una habitacion que ningun texto reclamo (planos sin rotulos). Son hipotesis de confianza baja.
     reclamados = {id(z["_poli"]) for z in zonas if z.get("_poli")}
-    libres = [q for q in polis if id(q) not in reclamados and id(q) not in poli_excluidos and not vocab.capas_no_recinto.search(q.get("capa", ""))]
-    for q in list(libres):
-        if q.get("origen_poli") != "muros" and not _dentro_de_la_casa((q["bbox"][0] + q["bbox"][2]) / 2, (q["bbox"][1] + q["bbox"][3]) / 2, q["pts"]):
-            libres.remove(q)
-            excluidas.append({"nombre": "contorno sin rotulo", "motivo": "fuera de la casa (fuera del casco de los muros)", "area_m2": round(q["area_m2"], 2),
-                              "x": round((q["bbox"][0] + q["bbox"][2]) / 2, 3), "y": round((q["bbox"][1] + q["bbox"][3]) / 2, 3)})
+    libres = [q for q in polis if id(q) not in reclamados and not vocab.capas_no_recinto.search(q.get("capa", ""))]
     descartes_cand, detalle_cand = {}, {}
     for i, p in enumerate(_poligonos_candidatos(libres, u, descartes_cand, detalle_cand), 1):
         b = p["bbox"]
@@ -571,7 +565,8 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
                       "y": round((b[1] + b[3]) / 2, 3), "capa": "", "origen": "muros" if p.get("origen_poli") == "muros" else "poligono",
                       "confianza": "baja", "candidato": True,
                       "bbox": [round(v, 3) for v in b], "area_m2": round(p["area_m2"], 2), "muebles": [], "muebles_detalle": [],
-                      "inferido_por": [], "_poli": p})
+                      "inferido_por": [], "_poli": p,
+                      **({"exterior": True} if p.get("origen_poli") != "muros" and not _dentro_de_la_casa((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, p["pts"]) else {})})
 
     # --- mobiliario: rol y asociacion a zonas
     definiciones = raw.get("definiciones") or {}
@@ -652,8 +647,8 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
             cy = (min(m["_b"]["y0"] for m in del_tipo) + max(m["_b"]["y1"] for m in del_tipo)) / 2
         else:
             cx, cy = ancla["x"], ancla["y"]
-        if not _dentro_de_la_casa(cx, cy):                   # mobiliario de afuera (terraza, jardin): no forma una zona interior
-            excluidas.append({"nombre": f"{tipo.replace('_', ' ').capitalize()} (mobiliario: {ancla['nombre']})", "motivo": "fuera de la casa (fuera del casco de los muros)",
+        if not _dentro_de_la_casa(cx, cy) or tipo in vocab.exteriores:     # mobiliario de afuera, sin contorno: no es una zona
+            excluidas.append({"nombre": f"{tipo.replace('_', ' ').capitalize()} (mobiliario: {ancla['nombre']})", "motivo": "exterior sin delimitar (mobiliario sin contorno cerrado)",
                               "area_m2": None, "x": round(cx, 3), "y": round(cy, 3)})
             contador[tipo] -= 1                              # la numeracion de las zonas inferidas no deja huecos
             continue
@@ -726,5 +721,5 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
                                 "poligonos": len(raw.get("poligonos", [])), "poligonos_con_area_de_recinto": len([q for q in polis if q.get("origen_poli") != "muros"]),
                                 "segmentos_de_muro": len(segs_muros), "descartes_de_candidatos": descartes_cand, "recintos_por_muros": len([q for q in polis if q.get("origen_poli") == "muros"]),
                                 "recintos_candidatos": len([z for z in zonas if z.get("candidato")]),
-                                "excluidas_exterior": len(excluidas),
+                                "excluidas_exterior": len(excluidas), "exteriores_delimitadas": len([z for z in zonas if z.get("exterior")]),
                                 "bloques": len(raw.get("bloques", [])), "bloques_con_rol": len(hosts), "bloques_sin_rol": len(sin_rol)}}

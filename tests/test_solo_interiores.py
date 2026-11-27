@@ -1,4 +1,4 @@
-"""Solo interiores: terrazas, patios, jardines y todo lo que cae fuera de la casa no se convierte en zona (y se informa como excluido)."""
+"""Exteriores: un balcon/terraza/patio solo es zona si esta DELIMITADO (contorno cerrado); sin contorno no es zona y se informa como excluido."""
 import pytest
 
 import recintos
@@ -51,46 +51,43 @@ def test_el_casco_de_la_casa_se_expone_para_filtrar():
     assert pts and len(pts) >= 4 and env is not None
 
 
-def test_una_terraza_rotulada_dentro_de_un_poligono_no_es_zona_y_su_contorno_no_vuelve_como_recinto():
-    raw = _raw(textos=[_txt("TERRAZA", 21, 4), _txt("SALA", 3, 4)], poligonos=[{"capa": "ARQ", "pts": _caja(18, 2, 24, 6)}])
+def test_un_balcon_delimitado_si_es_zona_y_queda_marcado_como_exterior():
+    raw = _raw(textos=[_txt("BALCON", 21, 4), _txt("SALA", 3, 4)], poligonos=[{"capa": "ARQ", "pts": _caja(18, 2, 24, 6)}])
     r = zonas_motor.construir_zonas(raw, VOCAB)
-    assert not any("terraza" in n.lower() for n in _nombres(r))
-    assert [e["nombre"] for e in r["excluidas_exterior"]].count("TERRAZA") == 1
-    assert not any(18 <= z["x"] <= 24 for z in r["zonas"])                      # ni la terraza ni su contorno quedaron como zona
+    b = [z for z in r["zonas"] if z["nombre"] == "BALCON"]
+    assert len(b) == 1 and b[0]["exterior"] is True and b[0]["area_m2"] == 24.0
+    assert r["excluidas_exterior"] == [] and r["resumen_lectura"]["exteriores_delimitadas"] == 1
+    assert not any(z.get("exterior") for z in r["zonas"] if z["nombre"] != "BALCON")      # lo de adentro no se marca como exterior
 
 
-def test_una_terraza_con_rotulo_pegada_a_la_casa_tambien_se_excluye_aunque_este_dentro_del_casco():
-    raw = _raw(textos=[_txt("Terraza", 3, 4), _txt("Sala", 10, 4)])             # el texto cae dentro de la casa: se excluye por el NOMBRE
+def test_una_terraza_solo_con_rotulo_y_sin_contorno_no_es_zona():
+    raw = _raw(textos=[_txt("Terraza", 30, 4), _txt("Sala", 10, 4)])
     r = zonas_motor.construir_zonas(raw, VOCAB)
     ex = r["excluidas_exterior"]
-    assert len(ex) == 1 and "nombre" in ex[0]["motivo"]
-    assert "Sala" in _nombres(r)
+    assert len(ex) == 1 and ex[0]["nombre"] == "Terraza" and "sin delimitar" in ex[0]["motivo"]
+    assert "Terraza" not in _nombres(r) and "Sala" in _nombres(r)
 
 
-def test_un_poligono_sin_rotulo_fuera_de_la_casa_no_es_recinto_candidato():
+def test_un_contorno_cerrado_sin_rotulo_fuera_de_la_casa_es_un_exterior_delimitado():
     raw = _raw(poligonos=[{"capa": "ARQ", "pts": _caja(20, 0, 26, 5)}])
     r = zonas_motor.construir_zonas(raw, VOCAB)
-    assert not any(z["x"] > 15 for z in r["zonas"])
-    assert any("fuera de la casa" in e["motivo"] for e in r["excluidas_exterior"])
+    ext = [z for z in r["zonas"] if z.get("exterior")]
+    assert len(ext) == 1 and ext[0]["candidato"] is True and ext[0]["x"] > 15 and r["excluidas_exterior"] == []
 
 
-def test_un_nombre_de_interior_cuyo_poligono_esta_fuera_de_la_casa_se_excluye():
-    raw = _raw(textos=[_txt("Sala", 22, 3)], poligonos=[{"capa": "ARQ", "pts": _caja(20, 0, 26, 5)}])
-    r = zonas_motor.construir_zonas(raw, VOCAB)
-    assert "Sala" not in _nombres(r) and r["excluidas_exterior"][0]["nombre"] == "Sala"
-
-
-def test_un_mueble_de_afuera_no_forma_una_zona_interior_y_uno_de_adentro_si():
+def test_un_mueble_de_afuera_sin_contorno_no_forma_zona_y_uno_de_adentro_si():
     cama = lambda x: {"n": "cama king", "capa": "MOB", "x0": x, "y0": 2, "x1": x + 2.0, "y1": 4.2}
-    r = zonas_motor.construir_zonas(_raw(bloques=[cama(40)]), VOCAB)         # a 40 m de la casa
-    assert not any(z["x"] > 15 for z in r["zonas"]) and any(e["motivo"].startswith("fuera") for e in r["excluidas_exterior"])
+    r = zonas_motor.construir_zonas(_raw(bloques=[cama(40)]), VOCAB)         # a 40 m de la casa, sin ningun contorno
+    assert not any(z["x"] > 15 for z in r["zonas"]) and any("sin delimitar" in e["motivo"] for e in r["excluidas_exterior"])
     r2 = zonas_motor.construir_zonas(_raw(bloques=[cama(2)]), VOCAB)
     assert r2["excluidas_exterior"] == []
 
 
-def test_sin_casco_fiable_solo_se_filtra_por_nombre():
-    raw = {"unidad_m": 1.0, "textos": [_txt("Patio", 5, 5), _txt("Sala", 25, 5)], "bloques": [], "muros": {"segmentos": [], "capas": []},
+def test_sin_casco_fiable_el_nombre_exterior_con_contorno_se_marca_y_sin_contorno_se_excluye():
+    raw = {"unidad_m": 1.0, "textos": [_txt("Patio", 5, 5), _txt("Sala", 25, 5), _txt("Jardin", 50, 50)], "bloques": [], "muros": {"segmentos": [], "capas": []},
            "lineas": {"segmentos": [], "entidades_leidas": 0}, "definiciones": {},
            "poligonos": [{"capa": "ARQ", "pts": _caja(0, 0, 10, 8)}, {"capa": "ARQ", "pts": _caja(20, 0, 30, 8)}]}
     r = zonas_motor.construir_zonas(raw, VOCAB)
-    assert "Sala" in _nombres(r) and [e["nombre"] for e in r["excluidas_exterior"]] == ["Patio"]
+    por_nombre = {z["nombre"]: z for z in r["zonas"]}
+    assert por_nombre["Patio"]["exterior"] is True and "exterior" not in por_nombre["Sala"]
+    assert [e["nombre"] for e in r["excluidas_exterior"]] == ["Jardin"]
