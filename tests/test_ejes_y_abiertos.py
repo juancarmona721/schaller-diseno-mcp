@@ -116,3 +116,18 @@ def test_un_bano_partido_por_juntas_de_baldosa_se_recupera_en_la_segunda_pasada(
     assert len(sin["recintos"]) == 0                                  # celdas diminutas: todo descartado
     assert len(con["recintos"]) == 1 and con["recintos"][0]["sin_lineas_sueltas"] and con["diagnostico"]["completados_sin_lineas_sueltas"] == 1
     assert 9.0 < con["recintos"][0]["area_m2"] < 11.0
+
+
+def test_lo_que_queda_fuera_de_los_muros_de_la_casa_no_se_convierte_en_recinto():
+    """Una casa a doble linea con un marco de lineas SUELTAS alrededor (cerca, cotas, marco de hoja): el anillo entre ambos NO es un recinto."""
+    import pytest
+    import recintos
+    if not recintos.disponible():
+        pytest.skip("sin shapely")
+    casa = [(0, 0, 8, 0), (8, 0, 8, 6), (8, 6, 0, 6), (0, 6, 0, 0), (0.12, 0.12, 7.88, 0.12), (7.88, 0.12, 7.88, 5.88), (7.88, 5.88, 0.12, 5.88), (0.12, 5.88, 0.12, 0.12)]
+    marco = [(-4, -4, 12, -4), (12, -4, 12, 10), (12, 10, -4, 10), (-4, 10, -4, -4)]
+    con = recintos.reconstruir(casa + marco, 1.0, None, {"completar_sin_lineas_sueltas": False})
+    sin = recintos.reconstruir(casa + marco, 1.0, None, {"completar_sin_lineas_sueltas": False, "envolvente_de_la_casa": False})
+    assert len(sin["recintos"]) == 2                                  # antes: la casa Y el anillo exterior
+    assert len(con["recintos"]) == 1 and abs(con["recintos"][0]["area_m2"] - 7.76 * 5.76) < 1.0
+    assert con["diagnostico"]["envolvente"]["tipo"] == "muros_de_doble_linea"

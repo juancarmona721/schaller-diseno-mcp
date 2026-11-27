@@ -21,6 +21,7 @@ PARAMETROS = {
     "ortogonal_dominante": 0.85,  # si al menos esta fraccion de la longitud de muros va en dos direcciones perpendiculares, lo inclinado es ruido (hoja de puerta, arco)
     "tolerancia_angulo": 4.0,     # grados respecto de la direccion dominante
     "filtrar_inclinados": True,
+    "envolvente_de_la_casa": True,          # la envolvente es el casco de los muros de DOBLE linea (los de la casa), no de cualquier linea suelta (cercas, marcos, cotas)
     "completar_sin_lineas_sueltas": True,   # 2a pasada: recintos que solo aparecen al ignorar las lineas SUELTAS (juntas de baldosas, mobiliario) y que la 1a no cubria
     "cierre_por_prolongacion": False,   # experimental: cierra aberturas prolongando el muro; apagado porque cambia recintos ya validados a ojo
 }
@@ -248,6 +249,18 @@ def reconstruir(segmentos: list, u: float = 1.0, poligonos_muro: list | None = N
     if muros.is_empty:
         return {"ok": True, "recintos": [], "diagnostico": {**diag, "detalle": "Sin geometria de muros utilizable."}}
     envolvente = muros.convex_hull.buffer(1.0)
+    if p.get("envolvente_de_la_casa") and piezas:
+        try:
+            import muros as muros_geo
+            pareados, info_par = muros_geo.segmentos_con_pareja([(a, b, c, d) for a, b, c, d in segs], 1.0)
+            largo_par = sum(math.hypot(c - a, d - b) for a, b, c, d in pareados)
+            largo_tot = sum(math.hypot(c - a, d - b) for a, b, c, d in segs) or 1.0
+            if largo_par >= 30.0 and largo_par / largo_tot >= 0.2:
+                # solo las lineas de doble cara definen la casa: lo que cae fuera de ese casco (jardin, cotas, marcos) no se convierte en recinto
+                envolvente = sh.MultiLineString([[(a, b), (c, d)] for a, b, c, d in pareados]).convex_hull.buffer(1.0)
+                diag["envolvente"] = {"tipo": "muros_de_doble_linea", "longitud_m": round(largo_par, 1), "caja_m": [round(v, 1) for v in envolvente.bounds]}
+        except Exception as e:
+            diag["envolvente_error"] = f"{type(e).__name__}: {e}"[:100]
     libre = envolvente.difference(muros)
     comps = list(libre.geoms) if hasattr(libre, "geoms") else [libre]
     borde = envolvente.boundary
