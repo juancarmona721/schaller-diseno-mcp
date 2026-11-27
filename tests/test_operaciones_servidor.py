@@ -269,3 +269,37 @@ def test_rectangulo_inscrito_de_una_L_y_de_un_rectangulo():
     assert abs(q["area"] - 40.0) < 1e-6                              # 10x4 (la franja horizontal) o 4x10 (la vertical)
     r = medidas.rectangulo_inscrito([(0, 0), (5, 0), (5, 3), (0, 3)])
     assert (r["x0"], r["y0"], r["x1"], r["y1"]) == (0, 0, 5, 3)
+
+
+def _rotar(pts, grados, c=(100.0, 50.0)):
+    import math
+    th = math.radians(grados)
+    return [[c[0] + (x - c[0]) * math.cos(th) - (y - c[1]) * math.sin(th), c[1] + (x - c[0]) * math.sin(th) + (y - c[1]) * math.cos(th)] for x, y in pts]
+
+
+def test_recinto_girado_se_calcula_en_sus_ejes_y_la_rejilla_sale_alineada_y_dentro(monkeypatch):
+    """Un recinto de 6 x 4 m girado 20 grados: la rejilla va alineada con SUS paredes (no con los ejes del plano) y ninguna pieza cae fuera."""
+    import math
+    import medidas
+    vistos = _montar(monkeypatch)
+    cont = _rotar([[97, 48], [103, 48], [103, 52], [97, 52]], 20)
+    xs, ys = [p[0] for p in cont], [p[1] for p in cont]
+    zonas = [{"n": 1, "bbox": [min(xs), min(ys), max(xs), max(ys)], "area_m2": 24.0, "contorno": cont, "medidas": {"angulo_grados": 20.0}}]
+    monkeypatch.setattr(server, "_zonas_del_plano", lambda *a, **k: {"ok": True, "zonas": zonas, "unidad_m": 1.0})
+    item = {"receta": "cuadricula", "anfitrion": "recinto 1", "producto": "ci160", "filas": 2, "columnas": 3, "etiquetar": False}
+    it = server.ubicar_varios([item], ejecutar=False)["items"][0]
+    assert it["anfitrion_usado"]["tipo"] == "caja_en_ejes_del_recinto" and abs(it["anfitrion_usado"]["giro_grados"] - 20.0) < 0.01
+    assert not any("FUERA" in a for a in (it["avisos"] or []))
+    p = it["piezas"]
+    ang_fila = math.degrees(math.atan2(p[1][2] - p[0][2], p[1][1] - p[0][1]))               # direccion de una fila: la del recinto (20 grados)
+    assert abs(ang_fila - 20.0) < 0.2 and all(medidas._en_poligono(q[1], q[2], [tuple(c) for c in cont]) for q in p)
+    assert abs(p[0][3] - math.radians(20.0)) < 0.01                                          # cada pieza gira con el recinto
+
+
+def test_cuadricula_sin_filas_calcula_cuantas_caben_con_separacion_y_margen():
+    import motor_ubicacion as mu
+    host = {"nombre": "R", "x0": 0, "y0": 0, "x1": 6.0, "y1": 4.0}
+    plan, av = mu.planear("cuadricula", host, {"producto": "ci160", "separacion_x": 1.5, "separacion_y": 1.5, "margen": 0.5, "etiquetar": False})
+    assert len(plan) == 12 and not av                    # (6-1)/1.5 -> 4 columnas (3.33+1); (4-1)/1.5 -> 3 filas (2+1)
+    xs = sorted({round(c["x"], 3) for c in plan})
+    assert xs[0] > 0.5 - 1e-6 and xs[-1] < 5.5 + 1e-6    # centradas y dentro del margen

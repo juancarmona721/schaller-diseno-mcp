@@ -303,10 +303,18 @@ def receta_cuadricula(host: dict, op: dict) -> tuple[list, list]:
     prod = op.get("producto")
     if not prod:
         raise ErrorUbicacion("receta 'cuadricula' necesita producto.")
+    margen = float(op.get("margen", 0.0) or 0.0)
     try:
-        filas, cols = int(op["filas"]), int(op["columnas"])
+        if op.get("filas") in (None, "") and op.get("columnas") in (None, ""):
+            # sin filas/columnas: cuantas CABEN segun las medidas del anfitrion, con la separacion y el margen indicados (nada por defecto: los pone quien llama)
+            if op.get("separacion_x") in (None, "") or op.get("separacion_y") in (None, ""):
+                raise KeyError
+            cols = int(max(0.0, r["w"] - 2 * margen) / float(op["separacion_x"]) + 1e-9) + 1
+            filas = int(max(0.0, r["h"] - 2 * margen) / float(op["separacion_y"]) + 1e-9) + 1
+        else:
+            filas, cols = int(op["filas"]), int(op["columnas"])
     except (KeyError, TypeError, ValueError):
-        raise ErrorUbicacion("receta 'cuadricula' necesita filas y columnas (enteros).")
+        raise ErrorUbicacion("receta 'cuadricula' necesita filas y columnas (enteros), o separacion_x y separacion_y (m) y, opcional, margen (m): entonces coloca las que caben.")
     if not (1 <= filas <= 20 and 1 <= cols <= 20 and filas * cols <= 200):
         raise ErrorUbicacion("filas y columnas deben estar entre 1 y 20 (maximo 200 piezas).")
     sx = float(op["separacion_x"]) if op.get("separacion_x") not in (None, "") else r["w"] / cols
@@ -394,7 +402,7 @@ RECETAS = {
     "mesa_4x": (receta_mesa_4x, "4 productos 2x2 sobre una mesa (por defecto parlantes Ci160CRDS)."),
     "tira_borde": (receta_tira_borde, "Durastrip centrada en un borde (N/S/E/O) del anfitrion."),
     "linea": (receta_linea, "n productos a lo largo del eje largo del anfitrion. Requiere producto."),
-    "cuadricula": (receta_cuadricula, "Rejilla filas x columnas centrada en el anfitrion (ej. un recinto). Requiere producto, filas y columnas; separacion_x/separacion_y en m opcionales (si faltan, reparto uniforme)."),
+    "cuadricula": (receta_cuadricula, "Rejilla centrada en el anfitrion (ej. un recinto). Requiere producto y filas+columnas (separacion_x/separacion_y en m opcionales: si faltan, reparto uniforme) O separacion_x+separacion_y (+ margen en m): coloca las que caben segun las medidas."),
 }
 
 

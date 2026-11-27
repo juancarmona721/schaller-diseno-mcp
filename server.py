@@ -511,19 +511,45 @@ def _anfitrion_de_recinto(zonas: list, ref, u: float, caja_completa: bool = Fals
     aviso = None
     cont = z.get("contorno")
     usado = {"tipo": "caja_del_recinto", "ancho_m": round((b[2] - b[0]) * u, 2), "largo_m": round((b[3] - b[1]) * u, 2)}
+    dev = ((float(ang) + 45.0) % 90.0) - 45.0 if ang is not None else 0.0         # giro respecto al eje mas cercano (grados, -45..45)
     if cont and len(cont) >= 3:
         host["contorno"] = cont                                 # para comprobar cada pieza contra la forma REAL
+        pts_c = [tuple(p) for p in cont]
+        if abs(dev) >= 0.3 and not caja_completa:               # recinto girado: se calcula en SUS ejes, no en los del plano
+            c0 = _centroide(pts_c)
+            th = math.radians(dev)
+            co, si = math.cos(th), math.sin(th)
+            local = [((x - c0[0]) * co + (y - c0[1]) * si, -(x - c0[0]) * si + (y - c0[1]) * co) for x, y in pts_c]       # R(-th)(p - c0)
+            lx, ly = [p[0] for p in local], [p[1] for p in local]
+            host.update(x0=min(lx), y0=min(ly), x1=max(lx), y1=max(ly), marco={"cx": c0[0], "cy": c0[1], "theta": th})
+            usado = {"tipo": "caja_en_ejes_del_recinto", "giro_grados": round(dev, 2), "ancho_m": round((max(lx) - min(lx)) * u, 2),
+                     "largo_m": round((max(ly) - min(ly)) * u, 2)}
+            pts_c = local
+            b = (min(lx), min(ly), max(lx), max(ly))
         if not caja_completa:
-            q = medidas.rectangulo_inscrito([tuple(p) for p in cont])
+            q = medidas.rectangulo_inscrito(pts_c)
             if q and q["area"] < 0.98 * (b[2] - b[0]) * (b[3] - b[1]):     # recinto irregular (L, U): la caja incluye espacio que no es del recinto
                 host.update(x0=q["x0"], y0=q["y0"], x1=q["x1"], y1=q["y1"])
-                usado = {"tipo": "mayor_rectangulo_inscrito", "ancho_m": round((q["x1"] - q["x0"]) * u, 2), "largo_m": round((q["y1"] - q["y0"]) * u, 2),
+                usado = {"tipo": "mayor_rectangulo_inscrito", **({"giro_grados": round(dev, 2)} if host.get("marco") else {}), "ancho_m": round((q["x1"] - q["x0"]) * u, 2), "largo_m": round((q["y1"] - q["y0"]) * u, 2),
                          "area_m2": round(q["area"] * u * u, 2), "area_recinto_m2": z.get("area_m2")}
                 aviso = (f"El recinto {n} no es rectangular: se calcula sobre el mayor rectangulo que cabe dentro ({usado['ancho_m']} x {usado['largo_m']} m, "
                          f"{usado['area_m2']} m2 de {z.get('area_m2')} m2) para que ninguna pieza caiga fuera. Con opciones.caja_completa=true se usa la caja.")
-    if ang is not None and min(abs(ang) % 90, 90 - abs(ang) % 90) > 3:
-        aviso = ((aviso + " ") if aviso else "") + (f"El recinto {n} esta girado {ang:g} grados: se calcula sobre ejes del plano y puede no coincidir con su forma real.")
     return {"nombre": nombre, "host": host, "usado": usado, **({"aviso": aviso} if aviso else {})}
+
+
+def _a_marco_global(plan: list, marco: dict) -> list:
+    """Lleva piezas calculadas en el marco local de un recinto girado (origen en su centroide, ejes = los del recinto) al plano: rota theta y traslada."""
+    th, cx, cy = marco["theta"], marco["cx"], marco["cy"]
+    co, si = math.cos(th), math.sin(th)
+    sal = []
+    for c in plan:
+        x, y = c["x"], c["y"]
+        d = {**c, "x": round(cx + x * co - y * si, 3), "y": round(cy + x * si + y * co, 3), "rot": round(c.get("rot", 0.0) + th, 5)}
+        if c.get("etiqueta"):
+            e = c["etiqueta"]
+            d["etiqueta"] = {**e, "x": round(cx + e["x"] * co - e["y"] * si, 3), "y": round(cy + e["x"] * si + e["y"] * co, 3)}
+        sal.append(d)
+    return sal
 
 
 def _centroide(pts) -> tuple:
@@ -1033,6 +1059,8 @@ def ubicar_varios(items: list[dict], ejecutar: bool = False, confirmacion: str |
             continue
         if h.get("aviso"):
             avisos = [h["aviso"]] + list(avisos or [])
+        if host.get("marco"):
+            plan = _a_marco_global(plan, host["marco"])
         cont = host.get("contorno")
         if cont:                                           # recinto: cada pieza debe caer DENTRO de su contorno real
             fuera = [(c["x"], c["y"]) for c in plan if not medidas._en_poligono(c["x"], c["y"], [tuple(p) for p in cont])]
