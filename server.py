@@ -757,6 +757,8 @@ def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = F
     MODO: si el usuario pidio SOLO consultar, evaluar o escanear, no coloques nada. Si pidio colocar, no le preguntes: si el plano NO trae
     nombres de ambientes o hay bloques anonimos, decide el rol mas probable segun tamano/posicion (sugerencias_roles), registralo con
     perfil_proyecto(accion='rol'), declaralo como supuesto y coloca con UNA llamada a ubicar_varios. No llames herramientas en paralelo.
+    SOLO INTERIORES: terrazas, patios, jardines, balcones y todo lo que quede fuera de la casa (fuera del casco de los muros) NO son zonas; el resultado
+    trae `excluidas_exterior` (nombre, motivo, area) con lo que se dejo fuera; en la respuesta solo cuentalo en una frase. No lo coloques ni lo trates como zona.
     Con 0 zonas el resultado trae `diagnostico` (que se leyo, por que no hubo zonas y que hacer): sigue esa ruta y no tomes capturas.
     """
     res = _zonas_del_plano(forzar_recarga, tipologia)

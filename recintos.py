@@ -257,8 +257,12 @@ def reconstruir(segmentos: list, u: float = 1.0, poligonos_muro: list | None = N
             largo_tot = sum(math.hypot(c - a, d - b) for a, b, c, d in segs) or 1.0
             if largo_par >= 30.0 and largo_par / largo_tot >= 0.2:
                 # solo las lineas de doble cara definen la casa: lo que cae fuera de ese casco (jardin, cotas, marcos) no se convierte en recinto
-                envolvente = sh.MultiLineString([[(a, b), (c, d)] for a, b, c, d in pareados]).convex_hull.buffer(1.0)
+                casco = sh.MultiLineString([[(a, b), (c, d)] for a, b, c, d in pareados]).convex_hull
+                envolvente = casco.buffer(1.0)
                 diag["envolvente"] = {"tipo": "muros_de_doble_linea", "longitud_m": round(largo_par, 1), "caja_m": [round(v, 1) for v in envolvente.bounds]}
+                interior = casco.buffer(0.5)                  # el casco de la casa (con 0.5 m de tolerancia), en unidades del dibujo: lo de fuera no es interior
+                if interior.geom_type == "Polygon":
+                    diag["envolvente"]["pts"] = [[round(x / u, 3), round(y / u, 3)] for x, y in list(interior.exterior.coords)[:-1]]
         except Exception as e:
             diag["envolvente_error"] = f"{type(e).__name__}: {e}"[:100]
     libre = envolvente.difference(muros)

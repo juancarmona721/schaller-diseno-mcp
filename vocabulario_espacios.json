@@ -249,6 +249,7 @@
   },
   {
    "categoria": "terraza",
+   "exterior": true,
    "grupos": [
     "vivienda",
     "hotel",
