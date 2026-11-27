@@ -1,0 +1,85 @@
+{
+ "roles_bloques": {
+  "Gruppo-120": "cama",
+  "Gruppo-203": "cama",
+  "Gruppo-3": "mesa_comedor",
+  "Gruppo": "sofa",
+  "Gruppo-1": "sofa",
+  "Gruppo-5": "sofa",
+  "dtjrtj (2D)": "cocina_mueble",
+  "Simbolo-7": "sanitario",
+  "Simbolo-8": "sanitario"
+ },
+ "ignorar_bloques": [],
+ "zonas_manuales": [],
+ "tipologia": null,
+ "atributos_bloques": {
+  "Gruppo-120": {
+   "cabecera": "N"
+  },
+  "Gruppo-203": {
+   "cabecera": "O",
+   "ancho_cama": 2.0,
+   "filas": [
+    0.9,
+    2.1
+   ]
+  },
+  "Simbolo-8": {
+   "puntos": [
+    [
+     4242.38,
+     1466.32
+    ]
+   ]
+  },
+  "Simbolo-7": {
+   "puntos": [
+    [
+     4244.22,
+     1466.32
+    ]
+   ]
+  },
+  "dtjrtj (2D)": {
+   "puntos_poceta": [
+    [
+     4205.15,
+     1458.5
+    ]
+   ],
+   "puntos_proyectores": [
+    [
+     4203.5,
+     1457.26
+    ],
+    [
+     4206.5,
+     1457.26
+    ]
+   ]
+  },
+  "Gruppo": {
+   "puntos_l7": [
+    [
+     4202.5,
+     1465.8
+    ],
+    [
+     4202.5,
+     1464.2
+    ]
+   ],
+   "rotacion_l7": 0
+  },
+  "Gruppo-1": {
+   "puntos_l7": [
+    [
+     4206.5,
+     1465.0
+    ]
+   ],
+   "rotacion_l7": 180
+  }
+ }
+}

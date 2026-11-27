@@ -1,0 +1,9 @@
+{
+ "roles_bloques": {},
+ "ignorar_bloques": [
+  "elevation"
+ ],
+ "zonas_manuales": [],
+ "tipologia": "vivienda",
+ "atributos_bloques": {}
+}

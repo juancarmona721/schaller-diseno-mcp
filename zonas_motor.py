@@ -146,14 +146,40 @@ def atributos_de(perfil: dict, nombre: str) -> dict:
     return {}
 
 
-def cargar_perfil(carpeta, nombre_dibujo: str) -> dict:
-    ruta = Path(carpeta) / f"{slug_proyecto(nombre_dibujo)}.json"
+# Perfiles que viajan con el repositorio: lo que el equipo ya aprendio de un plano (que es cada bloque, atributos) llega a todos los PCs al instalar o actualizar.
+# El perfil local de cada PC se suma encima y manda si hay choque.
+CARPETA_COMPARTIDOS = Path(__file__).resolve().parent / "perfiles_compartidos"
+
+
+def _leer_perfil(ruta: Path) -> dict:
+    try:
+        d = json.loads(ruta.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _sumar_perfil(base: dict, extra: dict) -> dict:
+    """extra manda sobre base: los diccionarios se mezclan, las listas se unen sin repetir, y un valor vacio no borra uno existente."""
+    for k, v in (extra or {}).items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            base[k] = {**base[k], **v}
+        elif isinstance(v, list) and isinstance(base.get(k), list):
+            base[k] = base[k] + [x for x in v if x not in base[k]]
+        elif v not in (None, "", [], {}):
+            base[k] = v
+        elif k not in base:
+            base[k] = v
+    return base
+
+
+def cargar_perfil(carpeta, nombre_dibujo: str, compartidos=None) -> dict:
+    """Perfil del plano = vacio + compartido (repositorio) + local (este PC). `compartidos`: carpeta de perfiles compartidos (por defecto la del repositorio)."""
+    archivo = f"{slug_proyecto(nombre_dibujo)}.json"
     base = perfil_vacio()
-    if ruta.is_file():
-        try:
-            base.update(json.loads(ruta.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            pass
+    for origen in (CARPETA_COMPARTIDOS if compartidos is None else compartidos, carpeta):
+        if origen and (Path(origen) / archivo).is_file():
+            _sumar_perfil(base, _leer_perfil(Path(origen) / archivo))
     return base
 
 

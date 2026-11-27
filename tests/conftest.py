@@ -20,3 +20,10 @@ def _datos_del_usuario_aislados(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "RUTA_CONEXION", raiz / "estado_conexion.json")
     monkeypatch.setattr(server, "CARPETA_CACHE", tmp_path / "cache_prueba")
     monkeypatch.setattr(server, "CARPETA_PERFILES", raiz / "perfiles")
+
+
+@pytest.fixture(autouse=True)
+def _perfiles_compartidos_aislados(monkeypatch, tmp_path):
+    """Las pruebas no leen los perfiles compartidos reales del repositorio (se prueban aparte, con carpetas propias)."""
+    import zonas_motor
+    monkeypatch.setattr(zonas_motor, "CARPETA_COMPARTIDOS", tmp_path / "sin_compartidos")
