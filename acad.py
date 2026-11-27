@@ -158,7 +158,7 @@ def leer_bloques(nombres=None, limite: int = 5000, max_posiciones: int = 200,
                          f"baja limite_objetos (ahora {limite}) o sube [autocad].timeout_lectura_s en config.toml."))
 
 
-def plano_crudo(timeout_s: float = 10.0, timeout_lectura_s: float = 60.0, cache_dir=None, ignorar_cache_bloque: bool = False) -> dict:
+def plano_crudo(timeout_s: float = 10.0, timeout_lectura_s: float = 60.0, cache_dir=None, ignorar_cache_bloque: bool = False, progreso=None) -> dict:
     """Lectura cruda del plano activo (textos, poligonos cerrados, bloques con su caja, unidades) para el escaner de zonas."""
     previo = estado(timeout_s)
     if not previo.get("ok"):
@@ -166,7 +166,8 @@ def plano_crudo(timeout_s: float = 10.0, timeout_lectura_s: float = 60.0, cache_
     if not previo.get("dibujo_activo"):
         return {"ok": False, "error": "sin_dibujo", "detalle": "AutoCAD esta abierto pero no hay ningun dibujo activo."}
     return _correr(PROBE_ZONAS, timeout_lectura_s, [json.dumps({"tiempo_max_s": max(5.0, timeout_lectura_s - 15), **({"cache_dir": str(cache_dir)} if cache_dir else {}),
-                                                                                              **({"ignorar_cache_bloque": True} if ignorar_cache_bloque else {})})],
+                                                                                              **({"ignorar_cache_bloque": True} if ignorar_cache_bloque else {}),
+                                                                                              **({"progreso": str(progreso)} if progreso else {})})],
                    mensaje_timeout=f"La lectura del plano no termino en {timeout_lectura_s:g} s (plano muy grande o AutoCAD ocupado).")
 
 

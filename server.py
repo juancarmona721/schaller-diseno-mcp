@@ -674,7 +674,7 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
             pass
     t = _tiempos()
     raw = acad.plano_crudo(timeout_s=t["timeout_s"], timeout_lectura_s=max(t["timeout_lectura_s"], 60.0), cache_dir=CARPETA_CACHE / "contenedores",
-                           ignorar_cache_bloque=bool(forzar))
+                           ignorar_cache_bloque=bool(forzar), progreso=_RAIZ_USUARIO / "debug" / "progreso_lectura.json")
     if not raw.get("ok"):
         return raw
     if _ajustes().get("guardar_lectura"):                  # depuracion (opt-in): la lectura cruda queda en el PC del usuario para analizarla sin AutoCAD
@@ -687,7 +687,7 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
     res = zonas_motor.construir_zonas(raw, VOCAB, perfil, tipologia)
     for i_, z_ in enumerate(res.get("zonas", []), 1):       # numero de cada zona = su posicion: es el que dibuja dibujar_recintos_revision y el que entiende "recinto N"
         z_["n"] = i_
-    res = {"ok": True, "plano": raw.get("plano"), "origen_datos": "lectura", "tiempo_lectura_s": raw.get("tiempo_lectura_s"),
+    res = {"ok": True, "plano": raw.get("plano"), "origen_datos": "lectura", "tiempo_lectura_s": raw.get("tiempo_lectura_s"), "fases_s": raw.get("fases_s"),
            "leido": {"textos": len(raw["textos"]), "poligonos": len(raw["poligonos"]), "bloques": len(raw["bloques"]),
                       "definiciones": len(raw.get("definiciones") or {}),
                      "elementos_en_contenedores": raw.get("elementos_en_contenedores", 0)},

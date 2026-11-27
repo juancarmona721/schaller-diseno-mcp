@@ -347,6 +347,19 @@ def leer(doc, args) -> dict:
     unidad_m = UNIDAD_A_METROS.get(ins, 1.0)
     aviso_unidades = None if ins in UNIDAD_A_METROS else "El dibujo no tiene unidades (INSUNITS=0): se asumen metros."
     textos, poligonos, bloques, contenedores, avisos = [], [], [], [], []
+    fases = {}
+
+    def marca(fase):
+        """Tiempo acumulado al terminar cada fase; si se indica `progreso`, se escribe en disco: aunque el proceso muera por tiempo, queda dicho donde se fue."""
+        fases[fase] = round(time.time() - t0, 2)
+        ruta = args.get("progreso")
+        if ruta:
+            try:
+                Path(ruta).parent.mkdir(parents=True, exist_ok=True)
+                Path(ruta).write_text(json.dumps({"ultima_fase": fase, "acumulado_s": fases}), encoding="utf-8")
+            except Exception:
+                pass
+    marca("inicio")
     if aviso_unidades:
         avisos.append(aviso_unidades)
     id_ident = Transformacion()
@@ -391,6 +404,7 @@ def leer(doc, args) -> dict:
                 pass
     finally:
         ss.Delete()
+    marca("textos")
     lineas_modelo = []
     ss = _seleccion(doc, "SS_ZONAS_POLI", "LWPOLYLINE,POLYLINE")
     try:
@@ -414,36 +428,86 @@ def leer(doc, args) -> dict:
                 pass
     finally:
         ss.Delete()
-    # lineas sueltas del modelo (muros dibujados como lineas en cualquier capa). Se leen POR CAPA: se saltan las de mobiliario/anotaciones (no son muros) y la capa
-    # ya se conoce, asi cada linea cuesta 2 llamadas COM (inicio y fin) en vez de 4.
+    marca("polilineas")
+    # lineas sueltas del modelo (muros dibujados como lineas en cualquier capa). Un filtro en el SERVIDOR deja fuera las capas de mobiliario/anotaciones/propias
+    # (lista de capas permitidas en lotes: AutoCAD limita el texto de un filtro), y cada linea cuesta 3 llamadas COM (capa, inicio, fin). Una seleccion por capa era lenta
+    # en planos con cientos de capas.
     lineas_incompletas = False
     t_lin = time.time()
     try:
         nombres_capas = [str(doc.Layers.Item(k).Name) for k in range(int(doc.Layers.Count))]
     except Exception:
         nombres_capas = []
-    saltar = vocab.capas_no_recinto
-    for capa in nombres_capas:
-        if capa in CAPAS_PROPIAS or saltar.search(capa) or vocab.capas_anotacion.search(capa):
-            continue
-        if time.time() - t_lin > PRESUPUESTO_LINEAS_MODELO_S or time.time() - t0 > limite or len(lineas_modelo) >= MAX_LINEAS_MODELO:
-            lineas_incompletas = True
-            avisos.append(f"Lineas del modelo: lectura PARCIAL (se agoto el tiempo antes de la capa '{capa}').")
-            break
-        try:
-            ss = _seleccion(doc, "SS_ZONAS_LIN", "LINE", _escapar_capa(capa))
-        except Exception:
-            continue
-        try:
-            for i in range(ss.Count):
-                try:
-                    e = ss.Item(i)
-                    a, b = e.StartPoint, e.EndPoint
-                    lineas_modelo.append([round(float(a[0]), 4), round(float(a[1]), 4), round(float(b[0]), 4), round(float(b[1]), 4), capa])
-                except Exception:
-                    pass
-        finally:
-            ss.Delete()
+    permitidas = [c for c in nombres_capas if c not in CAPAS_PROPIAS and not vocab.capas_no_recinto.search(c) and not vocab.capas_anotacion.search(c)]
+    lotes, lote, largo = [], [], 0
+    for c in permitidas:
+        e_ = _escapar_capa(c)
+        if lote and largo + len(e_) + 1 > 1500:
+            lotes.append(lote); lote, largo = [], 0
+        lote.append(e_); largo += len(e_) + 1
+    if lote:
+        lotes.append(lote)
+    # lectura PROGRESIVA: si se agota el tiempo, el avance se guarda en disco y el siguiente escaneo continua donde quedo (el orden de una seleccion es estable)
+    ruta_lin = None
+    try:
+        if args.get("cache_dir"):
+            ruta_lin = Path(args["cache_dir"]) / ("lin_" + hashlib.sha1(f"{doc.Name}|{int(doc.ModelSpace.Count)}|{'|'.join(permitidas)}".encode("utf-8")).hexdigest()[:16] + ".json")
+    except Exception:
+        ruta_lin = None
+    li0, j0, lineas_lin = 0, 0, []
+    previo_lin = None
+    try:
+        if ruta_lin is not None and ruta_lin.is_file():
+            previo_lin = json.loads(ruta_lin.read_text(encoding="utf-8"))
+    except Exception:
+        previo_lin = None
+    if previo_lin and previo_lin.get("completo") and args.get("ignorar_cache_bloque"):
+        previo_lin = None                                          # forzar_recarga: se vuelve a leer todo
+    if previo_lin:
+        lineas_lin = list(previo_lin.get("lineas", []))
+        li0, j0 = int(previo_lin.get("li", 0)), int(previo_lin.get("j", 0))
+    lin_completa = bool(previo_lin and previo_lin.get("completo"))
+    if not lin_completa:
+        li_fin, j_fin = li0, j0
+        for li in range(li0, len(lotes)):
+            if time.time() - t_lin > PRESUPUESTO_LINEAS_MODELO_S or time.time() - t0 > limite or len(lineas_lin) >= MAX_LINEAS_MODELO:
+                lineas_incompletas = True
+                break
+            try:
+                ss = _seleccion(doc, "SS_ZONAS_LIN", "LINE", ",".join(lotes[li]))
+            except Exception:
+                li_fin, j_fin = li + 1, 0
+                continue
+            try:
+                n_ss = int(ss.Count)
+                for i in range(j0 if li == li0 else 0, n_ss):
+                    if time.time() - t_lin > PRESUPUESTO_LINEAS_MODELO_S or time.time() - t0 > limite:
+                        lineas_incompletas = True
+                        li_fin, j_fin = li, i
+                        break
+                    try:
+                        e = ss.Item(i)
+                        a_, b_ = e.StartPoint, e.EndPoint
+                        lineas_lin.append([round(float(a_[0]), 4), round(float(a_[1]), 4), round(float(b_[0]), 4), round(float(b_[1]), 4), str(e.Layer)])
+                    except Exception:
+                        pass
+                else:
+                    li_fin, j_fin = li + 1, 0
+            finally:
+                ss.Delete()
+            if lineas_incompletas:
+                break
+        if lineas_incompletas:
+            avisos.append(f"Lineas del modelo: lectura PARCIAL ({len(lineas_lin)} leidas). Repite el escaneo con forzar_recarga=True: continua donde quedo.")
+        if ruta_lin is not None:
+            try:
+                ruta_lin.parent.mkdir(parents=True, exist_ok=True)
+                ruta_lin.write_text(json.dumps({"li": li_fin, "j": j_fin, "completo": not lineas_incompletas, "lineas": lineas_lin}), encoding="utf-8")
+            except Exception:
+                pass
+    lineas_modelo.extend(lineas_lin)
+    fases["lineas"] = round(time.time() - t_lin, 2)
+    marca("lineas")
     candidatos_cont = []
     ss = _seleccion(doc, "SS_ZONAS_BLK", "INSERT")
     try:
@@ -480,6 +544,7 @@ def leer(doc, args) -> dict:
                 pesos[n_] = 0
     candidatos_cont.sort(key=lambda c: -pesos.get(c[1], 0))
     contenedores = [e_ for e_, n_ in candidatos_cont if pesos.get(n_, 0) >= 30][:3]
+    marca("bloques")
     # ---- un nivel dentro de bloques contenedor (arquitectura dentro de un bloque). Ademas de textos, poligonos y bloques se leen las LINEAS y trazos (abiertos
     # o cerrados) con su capa: son la materia prima de los muros cuando el plano no los trae en el espacio modelo.
     dentro, lineas, trunc_lineas, leidas_cont = 0, [], False, 0
@@ -563,7 +628,9 @@ def leer(doc, args) -> dict:
             cont_errores += 1
             avisos.append(f"ERROR leyendo el bloque contenedor '{nombre_ref}': {type(ex).__name__}: {str(ex)[:140]}. El plano puede quedar sin muros: repite con forzar_recarga=True.")
     # ---- muros (capas con nombre de muro/tabique/pared/columna...): materia prima de los recintos por geometria
+    marca("contenedores")
     muros = _leer_muros(doc, list(vocab.datos.get("capas_muros") or []), t0, limite, avisos)
+    marca("muros_con_nombre")
 
     # ---- definiciones de los bloques SIN rol conocido (por vocabulario): una lectura por definicion, las mas grandes primero, con presupuesto de tiempo
     candidatas = {}
@@ -589,11 +656,12 @@ def leer(doc, args) -> dict:
             definiciones[n] = info
     if len(orden) > MAX_DEFINICIONES:
         avisos.append(f"Solo se abrieron las {MAX_DEFINICIONES} definiciones mas grandes de {len(orden)} bloques sin rol conocido.")
+    marca("definiciones")
     return {"ok": True, "plano": str(doc.Name), "unidad_m": unidad_m, "insunits": ins, "n_objetos": int(doc.ModelSpace.Count),
             "textos": textos, "poligonos": poligonos, "bloques": bloques, "definiciones": definiciones, "muros": muros, "lineas": {"segmentos": lineas + lineas_modelo, "truncado": trunc_lineas, "entidades_leidas": leidas_cont, "del_modelo": len(lineas_modelo)},
             "lectura": {"contenedores_completos": cont_completos, "contenedores_incompletos": cont_incompletos, "contenedores_con_error": cont_errores,
                         "lineas_modelo_incompletas": lineas_incompletas}, "contenedores_leidos": len(contenedores),
-            "elementos_en_contenedores": dentro, "avisos": avisos, "tiempo_lectura_s": round(time.time() - t0, 2)}
+            "elementos_en_contenedores": dentro, "avisos": avisos, "tiempo_lectura_s": round(time.time() - t0, 2), "fases_s": fases}
 
 
 def inventario(doc, args) -> dict:
