@@ -83,6 +83,22 @@ def test_un_mueble_de_afuera_sin_contorno_no_forma_zona_y_uno_de_adentro_si():
     assert r2["excluidas_exterior"] == []
 
 
+def test_un_espacio_con_nombre_de_interior_nunca_se_excluye_aunque_el_casco_sea_parcial():
+    """Caso real: el casco sale solo de los muros de doble linea y dejaba fuera alcobas con nombre (sin contorno medido). Deben seguir siendo zonas."""
+    raw = _raw(textos=[_txt("Alcoba 2", 40, 4), _txt("Cocina", 3, 4), _txt("Balcon", 45, 4)])        # Alcoba 2 y Balcon lejos del casco, sin contorno
+    r = zonas_motor.construir_zonas(raw, VOCAB)
+    por = {z["nombre"]: z for z in r["zonas"]}
+    assert "Alcoba 2" in por and "exterior" not in por["Alcoba 2"] and "Cocina" in por     # la alcoba se queda, sin marcarla como exterior
+    assert [e["nombre"] for e in r["excluidas_exterior"]] == ["Balcon"]                      # el balcon sin contorno si se excluye
+
+
+def test_el_casco_se_amplia_con_los_nombres_interiores_y_no_marca_como_exterior_un_contorno_dentro_de_ellos():
+    raw = _raw(textos=[_txt("Sala", 3, 4), _txt("Comedor", 30, 4)], poligonos=[{"capa": "ARQ", "pts": _caja(28, 2, 32, 6)}])   # contorno del comedor, lejos de los muros dobles
+    r = zonas_motor.construir_zonas(raw, VOCAB)
+    por = {z["nombre"]: z for z in r["zonas"]}
+    assert "exterior" not in por["Comedor"] and por["Comedor"]["area_m2"] == 16.0
+
+
 def test_sin_casco_fiable_el_nombre_exterior_con_contorno_se_marca_y_sin_contorno_se_excluye():
     raw = {"unidad_m": 1.0, "textos": [_txt("Patio", 5, 5), _txt("Sala", 25, 5), _txt("Jardin", 50, 50)], "bloques": [], "muros": {"segmentos": [], "capas": []},
            "lineas": {"segmentos": [], "entidades_leidas": 0}, "definiciones": {},

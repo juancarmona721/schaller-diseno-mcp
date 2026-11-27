@@ -483,3 +483,23 @@ def test_ninguna_herramienta_exige_que_la_confirmacion_sea_solo_texto():
         if "confirmacion" in props:
             tipos = {x.get("type") for x in props["confirmacion"].get("anyOf", [props["confirmacion"]])}
             assert {"string", "integer"} <= tipos, t.name
+
+
+def test_las_capas_se_piden_con_reintentos_si_autocad_esta_ocupado_un_instante(monkeypatch):
+    """Caso real (otro PC): 'AttributeError: <unknown>.Layers' en el primer intento al quitar marcas. Con reintentos la operacion sigue."""
+    monkeypatch.setattr("time.sleep", lambda s: None)
+
+    class DocOcupado:
+        def __init__(self, fallos):
+            self.fallos, self.pedidas = fallos, 0
+
+        @property
+        def Layers(self):
+            self.pedidas += 1
+            if self.pedidas <= self.fallos:
+                raise AttributeError("<unknown>.Layers")
+            return "capas"
+    d = DocOcupado(2)
+    assert pe.capas_de(d) == "capas" and d.pedidas == 3
+    with pytest.raises(AttributeError):
+        pe.capas_de(DocOcupado(99), intentos=3)                       # si AutoCAD sigue sin responder, el error se informa (no se oculta)

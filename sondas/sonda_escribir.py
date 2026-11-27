@@ -17,6 +17,18 @@ def mk_variant(x, y, z=0.0):
     return VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, (float(x), float(y), float(z)))
 
 
+def capas_de(doc, intentos: int = 6, pausa_s: float = 0.4):
+    """doc.Layers con reintentos: si AutoCAD esta ocupado un instante, el atributo no se resuelve ('<unknown>.Layers') y el primer intento falla."""
+    import time
+    for i in range(intentos):
+        try:
+            return doc.Layers
+        except Exception:
+            if i == intentos - 1:
+                raise
+            time.sleep(pausa_s)
+
+
 def existe(coleccion, nombre) -> bool:
     try:
         coleccion.Item(nombre)
@@ -55,7 +67,7 @@ def _insertar_grupo(doc, g, ejecutar, mk):
 
     Opcional: g["largo"] (estira en X hasta ese largo), o g["escala_x"] / g["escala_y"].
     """
-    capa_existia = existe(doc.Layers, g["capa"])
+    capa_existia = existe(capas_de(doc), g["capa"])
     ex, ey, err = escala_del_grupo(doc, g)
     if err:
         return {"capa_existia": capa_existia, "cantidad": 0, "error_escala": err}
@@ -65,7 +77,7 @@ def _insertar_grupo(doc, g, ejecutar, mk):
     if not ejecutar:
         return res
     if not capa_existia:
-        doc.Layers.Add(g["capa"])
+        capas_de(doc).Add(g["capa"])
     handles = []
     for x, y, rot in g["puntos"]:
         ref = doc.ModelSpace.InsertBlock(mk(float(x), float(y), 0), g["nombre"], ex, ey, ex, math.radians(float(rot)))
@@ -164,12 +176,12 @@ def ejecutar_op(doc, args, mk=mk_variant, mkd=None):
         return {**base, "grupos": res, "total_insertados": sum(r["cantidad"] for r in res)}
     if op == "textos":
         capa = args["capa"]
-        capa_existia = existe(doc.Layers, capa)
+        capa_existia = existe(capas_de(doc), capa)
         res = {"capa": capa, "capa_existia": capa_existia, "textos": len(args["textos"])}
         if not ejecutar:
             return {**base, **res}
         if not capa_existia:
-            doc.Layers.Add(capa)
+            capas_de(doc).Add(capa)
         handles = []
         for t in args["textos"]:
             x, y = float(t["x"]), float(t["y"])
@@ -185,12 +197,12 @@ def ejecutar_op(doc, args, mk=mk_variant, mkd=None):
         return {**base, **res, "handles": handles}
     if op == "lineas":
         capa = args["capa"]
-        capa_existia = existe(doc.Layers, capa)
+        capa_existia = existe(capas_de(doc), capa)
         res = {"capa": capa, "capa_existia": capa_existia, "lineas": len(args["segmentos"])}
         if not ejecutar:
             return {**base, **res}
         if not capa_existia:
-            lay = doc.Layers.Add(capa)
+            lay = capas_de(doc).Add(capa)
             try:
                 lay.color = int(args.get("color", 1))  # ACI: 1 = rojo
             except Exception:
@@ -209,7 +221,7 @@ def ejecutar_op(doc, args, mk=mk_variant, mkd=None):
         capa = str(args["capa"])
         if not capa.upper().startswith("SCH_REVISION"):                 # SOLO la capa de revision: nunca otra
             return {"ok": False, "error": "capa_no_permitida", "detalle": "Solo se pueden quitar capas SCH_REVISION*."}
-        existia = existe(doc.Layers, capa)
+        existia = existe(capas_de(doc), capa)
         quitados = _borrar_capa_propia(doc, capa) if (existia and ejecutar) else 0
         return {**base, "capa": capa, "capa_existia": existia, "quitados": quitados}
     return {"ok": False, "error": "operacion_desconocida", "detalle": str(op)}
@@ -224,13 +236,13 @@ def mk_doubles(valores):
 def _dibujar_espacios(doc, args, ejecutar, mk, mkd):
     """Rectangulos (muros esquematicos) + nombre centrado. Solo agrega, en dos capas propias."""
     capas = {"muros": args["capa_muros"], "espacios": args["capa_espacios"]}
-    existian = {k: existe(doc.Layers, v) for k, v in capas.items()}
+    existian = {k: existe(capas_de(doc), v) for k, v in capas.items()}
     res = {"espacios": len(args["espacios"]), "capas": capas, "capas_existian": existian}
     if not ejecutar:
         return res
     for k, v in capas.items():
         if not existian[k]:
-            doc.Layers.Add(v)
+            capas_de(doc).Add(v)
     alto = float(args.get("altura_texto", 200))
     handles = []
     for e in args["espacios"]:
@@ -276,12 +288,12 @@ def _dibujar_contornos(doc, args, ejecutar, mk, mkd):
     """Contornos REALES (polilineas cerradas) de los recintos medidos, con su numero y area, en una capa propia de revision. Solo agrega
     (y, si `reemplazar`, quita antes lo que haya en ESA capa)."""
     capa = args["capa"]
-    existia = existe(doc.Layers, capa)
+    existia = existe(capas_de(doc), capa)
     res = {"capa": capa, "capa_existia": existia, "contornos": len(args["contornos"])}
     if not ejecutar:
         return res
     if not existia:
-        lay = doc.Layers.Add(capa)
+        lay = capas_de(doc).Add(capa)
         try:
             lay.color = int(args.get("color", 1))
         except Exception:

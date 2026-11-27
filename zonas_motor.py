@@ -506,6 +506,22 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
     # de afuera) no es zona. Lo exterior delimitado queda marcado con exterior=True. "Exterior" = por su nombre (terraza, patio...) o fuera del casco de la casa.
     env_pts = ((((reconstruccion or {}).get("diagnostico") or {}).get("envolvente")) or {}).get("pts")
     excluidas = []
+    if env_pts and recintos.disponible():
+        # el casco sale solo de los muros de doble linea y puede ser PARCIAL (planos con muros de una linea): se amplia con todo lo que seguro es interior,
+        # los nombres de espacios interiores y los recintos reconstruidos desde los muros, para no sacar de la casa lo que si es casa
+        try:
+            from shapely.geometry import MultiPoint
+            puntos = [tuple(q) for q in env_pts]
+            for t_ in raw.get("textos", []):
+                cl_ = clasificar_texto(limpiar_texto(t_["t"]), vocab)
+                if cl_ is not None and cl_[0] not in vocab.exteriores:
+                    puntos.append((t_["x"], t_["y"]))
+            for q_ in polis:
+                if q_.get("origen_poli") == "muros":
+                    puntos += [tuple(c) for c in q_["pts"]]
+            env_pts = [list(c) for c in MultiPoint(puntos).convex_hull.exterior.coords][:-1]
+        except Exception:
+            pass
 
     def _dentro_de_la_casa(cx, cy, pts=None):
         if not env_pts:
@@ -517,6 +533,8 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
     def _es_exterior(z, poli):
         if z.get("tipo_espacio") in vocab.exteriores:
             return True
+        if str(z.get("origen", "")).startswith("texto") and z.get("tipo_espacio") != "otro":
+            return False                                     # un espacio con nombre de interior (alcoba, cocina...) nunca se saca por quedar "fuera" del casco
         if poli is not None and poli.get("origen_poli") == "muros":      # lo reconstruido desde los muros ya nace dentro del casco
             return False
         return not _dentro_de_la_casa(z["x"], z["y"], poli["pts"] if poli else None)
