@@ -356,6 +356,9 @@ def insertar_productos(items: list[dict], ejecutar: bool = False, confirmacion: 
 def insertar_bloques(items: list[dict], ejecutar: bool = False, confirmacion: str | int | None = None) -> dict:
     """MODIFICA EL DIBUJO (solo agrega): inserta bloques de la BIBLIOTECA por su nombre (no usa la hoja de Excel).
 
+    PARA DISENAR (colocar luminarias/audio en una zona o mueble) NO uses esta: usa ubicar_varios (recetas, centrado en el anfitrion, queda en el diario y se puede
+    quitar con quitar_colocaciones). Esta inserta puntos sueltos en SCH_BLOQUES y quitar_colocaciones no la cubre.
+
     items: [{"bloque": "<nombre exacto, ej. 'Mira R_Davide Groppi'>", "x": n, "y": n, "rotacion_grados": 0 (opcional),
     "largo": n (opcional), "escala_x": n, "escala_y": n (opcionales)}]. x, y es el punto base del bloque (en la mayoria, su centro).
     ADAPTAR UN BLOQUE: el bloque de la biblioteca es la referencia de forma; con `largo` (en unidades del dibujo) se estira sobre su
@@ -364,7 +367,7 @@ def insertar_bloques(items: list[dict], ejecutar: bool = False, confirmacion: st
     Los bloques deben existir ya en el plano (copiarlos antes con importar_biblioteca). Van en la capa [escritura].capa_bloques
     (por defecto SCH_BLOQUES). TODO O NADA: si un item es invalido o falta un bloque, no se inserta nada.
     Por defecto es un ENSAYO; con ejecutar=True inserta. En planos grandes exige `confirmacion` (CANDADO: el codigo que
-    sale en la linea de comandos de AutoCAD; pidelo a la persona, nunca lo inventes ni lo repitas de memoria).
+    sale en la linea de comandos de AutoCAD; pidelo a la persona UNA vez y nunca lo inventes: es fijo por plano, asi que una vez que te lo dio en esta conversacion lo reutilizas para ese mismo plano).
     """
     if (off := _escritura_off()):
         return off
@@ -1408,10 +1411,13 @@ def comparar_biblioteca(destino_contiene: str | None = None, origen_contiene: st
 
 @mcp.tool()
 def importar_biblioteca(destino_contiene: str | None = None, origen_contiene: str = "bloques_schaller_corregido",
-                        ejecutar: bool = False, confirmacion: str | int | None = None, solo_con_ficha: bool = True) -> dict:
+                        ejecutar: bool = False, confirmacion: str | int | None = None, solo_con_ficha: bool = True,
+                        nombres: list[str] | None = None) -> dict:
     """MODIFICA EL DIBUJO DESTINO (solo agrega): copia los bloques de PRODUCTO de la biblioteca (bloques_schaller_corregido) a un plano.
 
-    Por defecto solo los que tienen ficha (estan colocados en el modelo de la biblioteca) y sus sub-bloques internos; asi no se
+    RAPIDO: si vas a COLOCAR productos concretos, pasa `nombres=["CCTEvo Architectural_58", "Magia_Davide Groppi"]` (solo esos; sus sub-bloques viajan con ellos):
+    tarda segundos. Sin `nombres` copia TODA la biblioteca y en un plano grande tarda MINUTOS: no lo hagas para colocar dos o tres productos.
+    Por defecto (sin nombres) solo los que tienen ficha (estan colocados en el modelo de la biblioteca) y sus sub-bloques internos; asi no se
     cuelan definiciones sueltas ni restos de otros planos (cotas, niveles, nombres de proyectos). solo_con_ficha=False copia
     TODAS las definiciones (no recomendado).
     Asi todos los planos quedan con los bloques nombrados igual. Copia cada definicion tal cual, con su mismo nombre (solo
@@ -1424,7 +1430,7 @@ def importar_biblioteca(destino_contiene: str | None = None, origen_contiene: st
     if (off := _escritura_off()):
         return off
     r = acad.importar_simbolos(
-        {"origen_contiene": origen_contiene, "destino_contiene": destino_contiene, "nombres": None, "como_esta": True,
+        {"origen_contiene": origen_contiene, "destino_contiene": destino_contiene, "nombres": [str(n) for n in nombres] if nombres else None, "como_esta": True,
          "solo_con_ficha": bool(solo_con_ficha), "ejecutar": bool(ejecutar),
          "max_objetos": int(_escritura().get("max_objetos_dibujo", 300)), "confirmacion": confirmacion},
         timeout_s=_tiempos()["timeout_s"], timeout_importar_s=float(CFG.get("simbolos", {}).get("timeout_importar_s", 300)))

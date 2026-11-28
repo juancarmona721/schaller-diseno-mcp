@@ -503,3 +503,18 @@ def test_las_capas_se_piden_con_reintentos_si_autocad_esta_ocupado_un_instante(m
     assert pe.capas_de(d) == "capas" and d.pedidas == 3
     with pytest.raises(AttributeError):
         pe.capas_de(DocOcupado(99), intentos=3)                       # si AutoCAD sigue sin responder, el error se informa (no se oculta)
+
+
+def test_importar_biblioteca_con_nombres_copia_solo_esos_y_sin_nombres_toda_la_biblioteca(monkeypatch):
+    """Caso real: Claude importo TODA la biblioteca (minutos) para colocar dos productos. Con `nombres` solo viajan esos."""
+    visto = []
+    monkeypatch.setattr(server.acad, "importar_simbolos", lambda a, **k: visto.append(a) or {"ok": True, "ejecutado": False, "simbolos": {}, "avisos": []})
+    server.importar_biblioteca(nombres=["CCTEvo Architectural_58", "Magia_Davide Groppi"])
+    server.importar_biblioteca()
+    assert visto[0]["nombres"] == ["CCTEvo Architectural_58", "Magia_Davide Groppi"] and visto[1]["nombres"] is None
+
+
+def test_la_guia_dice_que_lo_que_nombra_el_usuario_se_encuentra_sin_pedirle_esquinas():
+    import guia_diseno
+    g = guia_diseno.FLUJO
+    assert "NUNCA le pidas" in g and "importar_biblioteca(nombres=" in g and "ubicar_varios" in g
