@@ -668,7 +668,7 @@ CARPETA_CACHE = AQUI / "cache"
 VOCAB = zonas_motor.cargar_vocabulario()
 
 
-def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict:
+def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None, con_nombres: bool | None = None) -> dict:
     """Zonas del dibujo ACTIVO. La cache se identifica por dibujo + numero de objetos + perfil, asi que cambiar de plano no mezcla datos."""
     est = acad.estado(timeout_s=float(CFG.get("autocad", {}).get("timeout_s", 10)))
     if not est.get("ok"):
@@ -677,6 +677,12 @@ def _zonas_del_plano(forzar: bool = False, tipologia: str | None = None) -> dict
     if not nombre:
         return {"ok": False, "error": "sin_dibujo", "detalle": "No hay ningun dibujo activo en AutoCAD."}
     perfil = zonas_motor.cargar_perfil(CARPETA_PERFILES, nombre)
+    if con_nombres is not None and perfil.get("con_nombres") is not bool(con_nombres):      # lo que dijo el equipo sobre ESTE plano se recuerda
+        perfil["con_nombres"] = bool(con_nombres)
+        try:
+            zonas_motor.guardar_perfil(CARPETA_PERFILES, nombre, perfil)
+        except OSError:
+            pass
     # lo que coloca este MCP no cambia lo que el escaner lee: no cuenta para la clave (si no, cada colocacion obligaria a releer todo el plano: ~20 s)
     clave = zonas_motor.clave_cache(nombre, int(est.get("objetos_en_modelo") or 0) - int(est.get("objetos_propios") or 0), perfil, tipologia,
                                     zonas_motor.version_motor())
@@ -743,7 +749,7 @@ def _diagnostico_sin_zonas(r: dict) -> dict:
 
 @mcp.tool()
 @_serializado
-def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = False, tipologia: str | None = None) -> dict:
+def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = False, tipologia: str | None = None, plano_con_nombres: bool | None = None) -> dict:
     """SOLO LECTURA: detecta zonas/espacios del plano ACTIVO para CUALQUIER tipo de proyecto (vivienda, oficina, hotel, comercial,
     restaurante, salud, educacion, industrial). Se adapta al plano en vez de asumir una casa.
 
@@ -760,10 +766,12 @@ def escanear_zonas(destino_contiene: str | None = None, forzar_recarga: bool = F
     MODO: si el usuario pidio SOLO consultar, evaluar o escanear, no coloques nada. Si pidio colocar, no le preguntes: si el plano NO trae
     nombres de ambientes o hay bloques anonimos, decide el rol mas probable segun tamano/posicion (sugerencias_roles), registralo con
     perfil_proyecto(accion='rol'), declaralo como supuesto y coloca con UNA llamada a ubicar_varios. No llames herramientas en paralelo.
+    TIPO DE PLANO (lo dice la persona; guardalo con plano_con_nombres y se recuerda para ese plano): True = el plano trae los NOMBRES de las zonas: NO se subdividen
+    y las ordenes van directo a cada zona o ubicacion. False = sin nombres: zonas numeradas y los espacios abiertos grandes se subdividen por mobiliario.
     EXTERIORES: un balcon, terraza o patio solo es zona si esta DELIMITADO (contorno cerrado); entonces trae exterior=true. Un exterior sin contorno (solo rotulo o
     mobiliario de afuera) no es zona: queda en `excluidas_exterior` (nombre, motivo); en la respuesta cuentalo en una frase y no lo coloques ni lo trates como zona.
     """
-    res = _zonas_del_plano(forzar_recarga, tipologia)
+    res = _zonas_del_plano(forzar_recarga, tipologia, plano_con_nombres)
     if isinstance(res, dict) and res.get("ok"):
         res = {**res, "zonas": [{k: v for k, v in z.items() if k != "contorno"} for z in res.get("zonas", [])], "siguiente_paso": "Si el usuario pidio COLOCAR: no preguntes; clasifica tu los bloques sin rol (perfil_proyecto accion='rol'), "
                                         "elige anfitriones (listar_anfitriones una sola vez) y coloca TODO con UNA llamada a ubicar_varios(ejecutar=True); "

@@ -134,8 +134,10 @@ def slug_proyecto(nombre: str) -> str:
 def perfil_vacio() -> dict:
     # atributos_bloques: lo que el usuario ya respondio sobre un bloque y no debe volver a preguntarsele (cabecera de una cama, ancho real,
     # puntos exactos de un compartimento...). Las herramientas lo usan solas como valores por defecto.
+    # con_nombres: el equipo dice si el plano trae los nombres de las zonas (True: no se subdividen, las ordenes van directo a cada zona) o no (False: zonas numeradas y
+    # espacios abiertos subdivididos por mobiliario). None = sin decir (se comporta como sin nombres).
     # capas_muros / capas_ignorar: pautas del escaneo para ESTE plano (nombres de capa exactos): las primeras se leen siempre como muros, las segundas no se leen.
-    return {"roles_bloques": {}, "ignorar_bloques": [], "zonas_manuales": [], "tipologia": None, "atributos_bloques": {}, "capas_muros": [], "capas_ignorar": []}
+    return {"roles_bloques": {}, "ignorar_bloques": [], "zonas_manuales": [], "tipologia": None, "atributos_bloques": {}, "capas_muros": [], "capas_ignorar": [], "con_nombres": None}
 
 
 def atributos_de(perfil: dict, nombre: str) -> dict:
@@ -633,7 +635,7 @@ def construir_zonas(raw: dict, vocab: Vocabulario, perfil: dict | None = None, t
         else:
             z["inferido_por"] = ["sin mobiliario clasificado dentro: tipo desconocido"]
 
-    n_subdivididas = _subdividir_por_mobiliario(zonas, u, vocab)
+    n_subdivididas = 0 if perfil.get("con_nombres") is True else _subdividir_por_mobiliario(zonas, u, vocab)      # plano CON nombres: las ordenes van directo, sin subzonas
 
     # --- zonas inferidas por agrupamiento de mobiliario sin zona
     libres = [h for h in hosts if not h.get("_asignado") and h["rol"] in vocab.rol_a_zona]

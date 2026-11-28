@@ -107,3 +107,27 @@ def test_sin_casco_fiable_el_nombre_exterior_con_contorno_se_marca_y_sin_contorn
     por_nombre = {z["nombre"]: z for z in r["zonas"]}
     assert por_nombre["Patio"]["exterior"] is True and "exterior" not in por_nombre["Sala"]
     assert [e["nombre"] for e in r["excluidas_exterior"]] == ["Jardin"]
+
+
+def test_plano_con_nombres_no_subdivide_y_sin_nombres_si(monkeypatch):
+    """El equipo dice si el plano trae nombres: con nombres las zonas no se parten en subzonas; sin nombres si (espacio grande con mobiliario de dos tipos)."""
+    llamadas = []
+    monkeypatch.setattr(zonas_motor, "_subdividir_por_mobiliario", lambda *a, **k: llamadas.append(1) or 0)
+    zonas_motor.construir_zonas(_raw(), VOCAB, {"con_nombres": True})
+    assert llamadas == []
+    zonas_motor.construir_zonas(_raw(), VOCAB, {"con_nombres": False})
+    zonas_motor.construir_zonas(_raw(), VOCAB, None)
+    assert len(llamadas) == 2
+
+
+def test_el_tipo_de_plano_se_guarda_en_el_perfil_del_plano(monkeypatch, tmp_path):
+    import server
+    from types import SimpleNamespace
+    monkeypatch.setattr(server.acad, "estado", lambda **k: {"ok": True, "dibujo_activo": "Casa X.dwg", "objetos_en_modelo": 10, "objetos_propios": 0})
+    monkeypatch.setattr(server.acad, "plano_crudo", lambda **k: {"ok": False, "error": "prueba"})
+    server._zonas_del_plano(False, None, True)
+    assert zonas_motor.cargar_perfil(server.CARPETA_PERFILES, "Casa X.dwg", compartidos=tmp_path / "x")["con_nombres"] is True
+    server._zonas_del_plano(False, None, None)                       # sin decir nada: se conserva lo dicho antes
+    assert zonas_motor.cargar_perfil(server.CARPETA_PERFILES, "Casa X.dwg", compartidos=tmp_path / "x")["con_nombres"] is True
+    server._zonas_del_plano(False, None, False)
+    assert zonas_motor.cargar_perfil(server.CARPETA_PERFILES, "Casa X.dwg", compartidos=tmp_path / "x")["con_nombres"] is False
