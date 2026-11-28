@@ -131,3 +131,17 @@ def test_el_tipo_de_plano_se_guarda_en_el_perfil_del_plano(monkeypatch, tmp_path
     assert zonas_motor.cargar_perfil(server.CARPETA_PERFILES, "Casa X.dwg", compartidos=tmp_path / "x")["con_nombres"] is True
     server._zonas_del_plano(False, None, False)
     assert zonas_motor.cargar_perfil(server.CARPETA_PERFILES, "Casa X.dwg", compartidos=tmp_path / "x")["con_nombres"] is False
+
+
+def test_consultar_zona_da_el_contorno_por_nombre_o_por_numero_y_avisa_si_no_lo_tiene(monkeypatch):
+    """Claude debe saber DONDE estan las divisiones de una zona sin que se dibuje nada en el plano; el escaneo normal no trae el contorno (es largo)."""
+    import server
+    zonas = [{"n": 1, "nombre": "Sala", "tipo_espacio": "sala", "contorno": [[0, 0], [6, 0], [6, 4], [0, 4]], "medidas": {"area_m2": 24.0}},
+             {"n": 2, "nombre": "Cocina", "tipo_espacio": "cocina"}]                       # rotulo sin contorno
+    monkeypatch.setattr(server, "_zonas_del_plano", lambda *a, **k: {"ok": True, "zonas": zonas, "unidad_m": 1.0})
+    r = server.consultar_zona("zona 1")
+    assert r["total"] == 1 and r["zonas"][0]["contorno"][2] == [6, 4] and r["zonas"][0]["rectangulo_util"] == {"x0": 0.0, "y0": 0.0, "x1": 6.0, "y1": 4.0}
+    assert server.consultar_zona("Recinto 1")["zonas"][0]["nombre"] == "Sala"
+    c = server.consultar_zona("cocina")["zonas"][0]
+    assert "contorno" not in c and "no se pudo cerrar su contorno" in c["sin_contorno"]
+    assert server.consultar_zona("zona 9")["error"] == "zona_no_encontrada"

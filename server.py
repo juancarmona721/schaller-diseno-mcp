@@ -870,18 +870,36 @@ def perfil_proyecto(accion: str = "ver", bloque: str | None = None, rol: str | N
 
 @mcp.tool()
 def consultar_zona(zona: str) -> dict:
-    """CONSULTA INSTANTANEA DE UNA ZONA (< 0.01 s): devuelve coordenadas, muebles y estado de un ambiente especifico."""
-    z_low = zona.strip().lower()
-    scan = escanear_zonas()
+    """CONSULTA INSTANTANEA DE UNA ZONA (< 0.01 s): devuelve coordenadas, muebles, estado y, cuando la zona tiene contorno, DONDE ESTAN SUS DIVISIONES.
+
+    `zona` = nombre ("cocina") o numero ("zona 7" o "recinto 7" = el numero del ultimo escaneo). Por cada zona trae `contorno` (vertices en unidades del dibujo; `unidad_m` =
+    metros por unidad), `medidas` (area, ancho x largo, angulo) y `rectangulo_util` (el mayor rectangulo alineado con los ejes que cabe entero dentro, en las mismas
+    unidades). El contorno NO se dibuja en el plano: es solo para que sepas donde estan los limites. Si la zona no tiene `contorno`, solo se conoce su punto y su nombre.
+    """
+    consulta = zona.strip().lower()
+    scan = _zonas_del_plano()
     if not scan.get("ok"):
         return scan
-    coincidencias = []
-    for z in scan.get("zonas", []):
-        if z_low in z.get("nombre", "").lower() or z_low in z.get("tipo_espacio", "").lower():
-            coincidencias.append(z)
+    m = re.fullmatch(r"(?:zona|recinto)\s*(\d+)", consulta)
+    if m:
+        coincidencias = [z for z in scan.get("zonas", []) if z.get("n") == int(m.group(1))]
+    else:
+        coincidencias = [z for z in scan.get("zonas", []) if consulta in z.get("nombre", "").lower() or consulta in z.get("tipo_espacio", "").lower()]
     if not coincidencias:
         return {"ok": False, "error": "zona_no_encontrada", "detalle": f"No se encontro ninguna zona que coincida con '{zona}'."}
-    return {"ok": True, "total": len(coincidencias), "zonas": coincidencias}
+    salida = []
+    for z in coincidencias[:6]:
+        z = dict(z)
+        pts = z.get("contorno")
+        if pts and len(pts) >= 3:
+            q = medidas.rectangulo_inscrito([tuple(p) for p in pts])
+            if q:
+                z["rectangulo_util"] = {k: round(q[k], 3) for k in ("x0", "y0", "x1", "y1")}
+        else:
+            z["sin_contorno"] = "solo se conoce el nombre y el punto de esta zona: no se pudo cerrar su contorno, asi que no hay medidas ni limites"
+        salida.append(z)
+    return {"ok": True, "total": len(coincidencias), "unidad_m": scan.get("unidad_m"), "zonas": salida,
+            **({"aviso": f"Hay {len(coincidencias)} coincidencias; se muestran 6."} if len(coincidencias) > 6 else {})}
 
 
 @mcp.tool()

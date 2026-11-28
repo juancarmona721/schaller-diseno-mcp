@@ -31,6 +31,8 @@ DOS TIPOS DE PLANO (lo dice la persona; si no lo dijo, preguntaselo UNA vez: "es
 - SIN nombres: escanear_zonas(plano_con_nombres=False). Las zonas son recintos numerados (los espacios abiertos grandes se subdividen por mobiliario). Dibuja SOLO los
   numeros (dibujar_recintos_revision, contornos=False) para que el arquitecto los vea. El arquitecto dice "en la zona 7 pon..." y usas "recinto 7". NO nombres las zonas.
 - Se recuerda para ese plano: no lo vuelvas a preguntar.
+- LIMITES DE UNA ZONA: consultar_zona("zona 7" o "cocina") devuelve su contorno y su rectangulo util. Los limites NO se dibujan en el plano (podrian estorbar): se usan por dentro
+  para calcular. Si una zona dice sin_contorno, solo conoces su punto: dilo en una frase y no inventes medidas.
 
 LO QUE EL USUARIO NOMBRA, LO ENCUENTRAS TU
 - Si pide ubicar en "la isla", "la cama", "la cocina": encuentralo tu con escanear_zonas, listar_anfitriones (filtro por nombre o capa) y buscar_en_plano. NUNCA le pidas
